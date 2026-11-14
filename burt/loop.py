@@ -115,7 +115,11 @@ def build_menu(visible: dict, state: dict) -> list[Action]:
         return actions
 
     actions: list[Action] = []
-    actions.append(Action(key="osmotret", label="Look around"))
+    last = hidden.get("last_action")
+    same_count = hidden.get("same_action_count", 0)
+    # Hide osmotret if repeated 2+ times — force the model to choose differently
+    if last != "osmotret" or same_count < 2:
+        actions.append(Action(key="osmotret", label="Look around"))
 
     exits = visible.get("location", {}).get("exits", [])
     for d in DIRECTIONS:

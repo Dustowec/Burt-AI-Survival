@@ -175,6 +175,11 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
     if sleep_mod.should_inject_tired(step):
         report += "\n\nYou are tired." if step < 20 else "\n\nYou are very tired."
 
+    # ── 2b. Repetition signal ────────────────────────────────
+    same = hidden.get("same_action_count", 0)
+    if same >= 2:
+        report += f"\n\nYou have done this {same + 1} times in a row. Do something else."
+
     # ── 3. Menu ───────────────────────────────────────────────
     menu = loop.build_menu(visible, state)
 
