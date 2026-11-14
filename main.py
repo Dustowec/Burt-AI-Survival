@@ -246,8 +246,11 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
     step_now = hidden.get("step", 0)
     chose_sleep = (action.key == "sleep")
     if sleep_mod.is_forced_sleep(step_now, chose_sleep):
-        logger.info("Forced sleep (step 20)")
-        _do_sleep(state)
+        if hidden.get("current_mode") != "combat":
+            logger.info("Forced sleep (step 20)")
+            _do_sleep(state)
+        else:
+            logger.info("Forced sleep blocked (in combat, step %d)", step_now)
 
     # ── 11. Daily expiry ─────────────────────────────────────
     quests.expire_blockades(state)

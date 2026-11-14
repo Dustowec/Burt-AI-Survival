@@ -1,64 +1,59 @@
-ТЕХНИЧЕСКОЕ ЗАДАНИЕ ДЛЯ ИИ-АГЕНТА
-Контекст: Проект BURT-AI (текстовая RPG). Работаем строго по TDD. Все тесты сейчас зелёные (1425+ passed). Стиль кода: только английский (docstrings, переменные), без кириллицы в исходниках. Общение и документация — на русском.
+ТЕХНИЧЕСКОЕ ЗАДАНИЕ ДЛЯ ИИ-АГЕНТА (v2)
+Контекст: Проект BURT-AI (текстовая RPG). TDD обязателен. Все тесты сейчас зелёные (1455+ passed). Код, docstrings, имена — только на английском.
 
-Цель: Исправить архитектурный баг «двойного события» при провале движения (Вариант А).
+Цель: Исправить баг «принудительный сон срабатывает во время боя», но при этом сохранить сон сразу после победы в бою на 20-м шаге.
 
-Текущая проблема (Баг):
-В файле burt/loop.py в функции _handle_movement_failure при результате fail или fail_bad сначала всегда срабатывает микрособытие (resolve_micro_event: молния, дерево, камень), наносится урон. А если результат fail_bad, то поверх этого ещё срабатывает resolve_bad_movement_event (ловушка, засада), наносится дополнительный урон, и может начаться бой. В итоге за один ход игрок получает два наложенных друг на друга события и двойной урон (например, 9 урона от молнии + 1 урон от ловушки = мгновенная смерть с 10 HP).
+Текущая проблема:
+В main.py в run_turn проверка sleep_mod.is_forced_sleep(step_now, chose_sleep) не учитывает current_mode. Если Бурт входит в бой на 19-м шаге (step становится 20), сон срабатывает прямо посреди боя.
 
-Требуемое поведение (Вариант А):
-Один провал движения = строго одно событие.
+Требуемое поведение (ВАЖНО):
 
-Если move_result == "fail":
+Если current_mode == "combat" — forced sleep не срабатывает (бой замораживает время).
 
-Срабатывает только resolve_micro_event.
+Если бой закончился победой (burt_won) в этом же ходу — current_mode становится "exploring" внутри execute_action, и forced sleep срабатывает сразу в этом же ходу (потому что шаг уже 20, а бой закончился).
 
-Наносится урон, пишется событие в лог.
+Если бой продолжается (current_mode == "combat") — сон не срабатывает, step остается 20.
 
-Проверяется смерть (HP <= 0). Если да — game_over=True.
-
-Если move_result == "fail_bad":
-
-Срабатывает только resolve_bad_movement_event (микрособытие полностью пропускается).
-
-Наносится extra_damage (если есть), обновляется состояние.
-
-Пишется описание события (ev.description) в лог. (Важно: если extra_damage есть, добавь его в текст события или отдельной строкой, чтобы было видно в логе!).
-
-Проверяется смерть (HP <= 0). Если да — game_over=True.
-
-Если ev.starts_combat — начинается бой.
-
-В обоих случаях hidden["micro_location"] должен обновляться корректно (с полями source_node, target_node, direction, event_type, damage), чтобы меню [go_back, go_forward] продолжало работать.
-
-В файле main.py функция _determine_death_cause должна корректно определять причину смерти. Если умер от fail_bad, причиной должна быть ловушка/засада (из bad_movement_event), а если от fail — из микрособытия. Подтяни данные из hidden["micro_location"]["event_type"].
+Если бой закончился поражением (burt_died) — game_over=True, сон не нужен.
 
 Файлы для изменения:
 
-burt/loop.py (функция _handle_movement_failure).
+main.py (run_turn, блок «Forced sleep on step 20»).
 
-tests/test_loop.py (написать red-тесты ДО правки кода).
-
-main.py (функция _determine_death_cause, если потребуется).
+tests/test_main.py (red-тесты).
 
 План работ (TDD):
 
-В tests/test_loop.py создай класс TestMovementFailureSingleEvent.
+В tests/test_main.py создай класс TestForcedSleepBlockedInCombat.
 
 Напиши тесты:
 
-test_fail_rolls_only_micro_event: при move_result == "fail" урон наносится только один раз (например, молния).
+test_no_forced_sleep_during_ongoing_combat: state с current_mode="combat", step=20. run_turn (мок llm_client.call_llm возвращает боевое действие, например "attack_wolf_1"). Проверить: hp не восстановился до hp_max, step остался 20.
 
-test_fail_bad_rolls_only_bad_event: при move_result == "fail_bad" урон идёт только от ловушки/засады (микрособытие молнии не срабатывает, даже если кубик на неё указывает).
+test_forced_sleep_after_combat_win: state с current_mode="combat", step=20, но execute_action возвращает burt_won (нужно замокать loop.execute_action или настроить hidden["combat"] так, чтобы волк умер от одного удара). Проверить: current_mode стал "exploring", hp восстановился, step стал 0, day увеличился.
 
-test_fail_bad_can_kill: если extra_damage убивает, возвращается game_over=True.
+test_forced_sleep_in_exploring_mode: state с current_mode="exploring", step=20. Проверить: _do_sleep сработал.
 
-test_fail_bad_can_start_combat: если starts_combat=True, бой начинается корректно.
+Убедись, что новые тесты падают.
 
-Убедись, что эти тесты падают (red state).
+Отредактируй main.py: перед _do_sleep(state) добавь проверку if hidden.get("current_mode") != "combat":.
 
-Отредактируй burt/loop.py, разделив логику. Убери вызов resolve_micro_event, если move_result == "fail_bad".
+Прогони pytest tests/ -q. Все тесты зелёные (1455 + новые).
 
-Прогони pytest tests/ -q. Все 1425+ тестов должны быть зелёными.
+Важные ограничения:
 
-Важное ограничение: Не меняй ничего в combat.py, sensory.py, hunger.py и других модулях. Задача строго локальная для loop.py и его тестов.
+Не меняй combat.py, loop.py, sensory.py, sleep.py, hunger.py. Только main.py + tests/test_main.py.
+
+Не трогай _do_sleep — она работает правильно.
+
+Для теста test_forced_sleep_after_combat_win можешь использовать unittest.mock.patch для loop.execute_action, чтобы он вернул ActionResult(events=[], game_over=False) и явно установил hidden["current_mode"] = "exploring". Или настрой hidden["combat"] так, чтобы враг умирал с одного удара (hp=1).
+
+Покажи git diff main.py и результат pytest -q.
+
+Формат сдачи:
+
+Все тесты зелёные (укажи точное число).
+
+git diff main.py с изменениями.
+
+Краткое описание: что было, что стало, где именно сработала проверка.

@@ -409,3 +409,128 @@ class TestNoTruncation:
         assert max_len > 300, (
             f"answer must NOT be truncated at 200; got max len {max_len}"
         )
+
+
+# ---------------------------------------------------------------------
+# Forced sleep blocked during combat (TZ "TZ for GigaCode.md")
+# ---------------------------------------------------------------------
+
+class TestForcedSleepBlockedInCombat:
+    """Проверяют что forced sleep не ломает бой, но работает после победы."""
+
+    def _fresh_combat_state(self, hp=8, hp_max=10, step=20, current_mode="combat",
+                            enemy_hp=100):
+        """Создать состояние с боем и step=20, используя правильный формат combat."""
+        from burt.combat import start_combat
+        st = _fresh_state()
+        st["visible"]["hp"] = hp
+        st["visible"]["hp_max"] = hp_max
+        st["hidden"]["step"] = step
+        st["hidden"]["current_mode"] = current_mode
+        cs = start_combat(["wolf"], "burt")
+        enemy_dict = cs.to_dict()["enemies"][0]
+        enemy_dict["hp"] = enemy_hp
+        cs_dict = cs.to_dict()
+        cs_dict["enemies"] = [enemy_dict]
+        st["hidden"]["combat"] = cs_dict
+        return st
+
+    @pytest.mark.asyncio
+    async def test_no_forced_sleep_during_ongoing_combat(self):
+        """Бой идёт — forced sleep НЕ срабатывает, HP не восстановился, step=20."""
+        st = _fresh_state()
+        st["visible"]["hp"] = 8
+        st["visible"]["hp_max"] = 10
+        st["hidden"]["step"] = 20
+        st["hidden"]["current_mode"] = "combat"
+        st["hidden"]["combat"] = {"enemies": [], "initiative": "burt"}
+
+        async def fake_call(system_msg, user_msg, history=None):
+            return "attack_wolf", []
+
+        with patch.object(main.llm_client, "call_llm", side_effect=fake_call):
+            with patch.object(main.loop, "execute_action") as mock_exec:
+                mock_exec.return_value = main.loop.ActionResult(
+                    events=["You attack the wolf."],
+                )
+                game_over, _ = await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+
+        assert not game_over
+        assert st["visible"]["hp"] != st["visible"]["hp_max"], (
+            f"HP should NOT be fully restored during ongoing combat; got {st['visible']['hp']}/{st['visible']['hp_max']}"
+        )
+        assert st["hidden"]["step"] == 20, (
+            "step should remain 20 during ongoing combat"
+        )
+        assert st["hidden"]["current_mode"] == "combat", (
+            "current_mode should stay 'combat' during ongoing combat"
+        )
+
+    @pytest.mark.asyncio
+    async def test_forced_sleep_after_combat_win(self):
+        """Бой закончился победой — forced sleep срабатывает: hp=hp_max, step=0, day+1."""
+        st = _fresh_state()
+        st["visible"]["hp"] = 7
+        st["visible"]["hp_max"] = 10
+        st["hidden"]["step"] = 20
+        st["hidden"]["current_mode"] = "combat"
+        st["hidden"]["combat"] = {"enemies": [], "initiative": "burt"}
+        initial_day = st["hidden"]["day"]
+
+        async def fake_call(system_msg, user_msg, history=None):
+            return "attack_wolf", []
+
+        with patch.object(main.llm_client, "call_llm", side_effect=fake_call):
+            with patch.object(main.loop, "execute_action") as mock_exec:
+                def side_effect(action, state, rng=None):
+                    state["hidden"]["combat"] = None
+                    state["hidden"]["current_mode"] = "exploring"
+                    return main.loop.ActionResult(events=["You defeated the wolf!"])
+
+                mock_exec.side_effect = side_effect
+                game_over, _ = await main.run_turn(st, [], rng=lambda: 5, dry_run=False)
+
+        assert not game_over
+        assert st["hidden"]["current_mode"] == "exploring", (
+            f"current_mode should switch to 'exploring' after combat win; got {st['hidden']['current_mode']}"
+        )
+        assert st["visible"]["hp"] == st["visible"]["hp_max"], (
+            "HP should be fully restored after forced sleep post-combat"
+        )
+        assert st["hidden"]["step"] == 0, (
+            "step should reset to 0 after forced sleep"
+        )
+        assert st["hidden"]["day"] == initial_day + 1, (
+            "day should increment after forced sleep"
+        )
+
+    @pytest.mark.asyncio
+    async def test_forced_sleep_in_exploring_mode(self):
+        """exploring + step=20 -> forced sleep срабатывает."""
+        st = _fresh_state()
+        st["visible"]["hp"] = 5
+        st["visible"]["hp_max"] = 10
+        st["hidden"]["step"] = 20
+        st["hidden"]["current_mode"] = "exploring"
+        initial_day = st["hidden"]["day"]
+
+        async def fake_call(system_msg, user_msg, history=None):
+            return "search", []
+
+        with patch.object(main.llm_client, "call_llm", side_effect=fake_call):
+            with patch.object(main.loop, "execute_action") as mock_exec:
+                mock_exec.return_value = main.loop.ActionResult(
+                    events=["You search the area."],
+                )
+                game_over, _ = await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+
+        assert not game_over
+        assert st["visible"]["hp"] == st["visible"]["hp_max"], (
+            "HP should be fully restored by forced sleep in exploring mode"
+        )
+        assert st["hidden"]["step"] == 0, (
+            "step should reset to 0 after forced sleep"
+        )
+        assert st["hidden"]["day"] == initial_day + 1, (
+            "day should increment after forced sleep"
+        )
