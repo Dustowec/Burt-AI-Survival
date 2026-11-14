@@ -2,9 +2,9 @@
   "meta": {
     "life": 1,
     "day": 1,
-    "step": 3,
-    "session_uuid": "adcaf18e-bfd6-49c1-afa1-33f29ccca6cc",
-    "session_started": "2026-11-14T21:35:48.522823+00:00",
+    "step": 15,
+    "session_uuid": "ae6b0f63-fd46-4ca4-87c5-e0b00579cadf",
+    "session_started": "2026-11-14T23:17:53.766204+00:00",
     "config_hash": "v0.7.0"
   },
   "visible": {
@@ -17,24 +17,16 @@
     "date": "1 day",
     "effects": [],
     "location": {
-      "name": "Road",
+      "name": "Village",
       "exits": [
-        "south",
-        "west"
+        "north",
+        "east",
+        "south"
       ]
     },
-    "inventory": [
-      {
-        "name": "bread",
-        "count": 2
-      },
-      {
-        "name": "water",
-        "count": 1
-      }
-    ],
+    "inventory": [],
     "wallet": {
-      "gold": 0,
+      "gold": 5,
       "silver": 5,
       "copper": 0
     },
@@ -81,10 +73,10 @@
         "type": "road",
         "entered": true,
         "exits": {
-          "north": null,
-          "east": null,
+          "north": "node_5",
+          "east": "node_6",
           "south": "start",
-          "west": "node_5"
+          "west": null
         }
       },
       "node_2": {
@@ -118,23 +110,53 @@
         }
       },
       "node_5": {
+        "type": "village",
+        "entered": true,
+        "exits": {
+          "north": "node_7",
+          "east": "node_8",
+          "south": "node_1",
+          "west": null
+        }
+      },
+      "node_6": {
         "type": null,
         "entered": false,
         "exits": {
           "north": null,
-          "east": "node_1",
+          "east": null,
           "south": null,
+          "west": "node_1"
+        }
+      },
+      "node_7": {
+        "type": null,
+        "entered": false,
+        "exits": {
+          "north": null,
+          "east": null,
+          "south": "node_5",
           "west": null
+        }
+      },
+      "node_8": {
+        "type": null,
+        "entered": false,
+        "exits": {
+          "north": null,
+          "east": null,
+          "south": null,
+          "west": "node_5"
         }
       }
     },
-    "current_node_id": "node_1",
+    "current_node_id": "node_5",
     "npcs_here": [],
     "events_here": [],
     "has_room_tonight": false,
     "current_mode": "exploring",
     "combat": null,
-    "last_action": "go_west",
+    "last_action": "go_north",
     "same_action_count": 1,
     "dice_log_last": [],
     "pending_events": [],
@@ -145,16 +167,11 @@
     "has_staff": false,
     "teacher_found": false,
     "trained_by": [],
-    "step": 3,
+    "step": 15,
     "day": 1,
     "resurrection_used_today": false,
     "micro_location": {
-      "active": true,
-      "source_node": "node_1",
-      "target_node": "node_5",
-      "direction": "west",
-      "event_type": "lightning",
-      "damage": 9
+      "active": false
     },
     "role_quest_block": {},
     "deceit_penalty_until": {}

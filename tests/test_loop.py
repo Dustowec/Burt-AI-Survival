@@ -427,23 +427,42 @@ class TestOsmotretPunishment:
     class TestLethalMovement:
         """Проверка, что смертельный урон от микро-события вызывает game_over (даже при обычном fail)."""
 
-    def test_movement_fail_can_kill(self):
-        st = make_state()
-        st["visible"]["hp"] = 1
-        st["hidden"]["hp_raw"] = 1
-        
-        # rng side_effect:
-        # 1. move_roll (2 -> fail)
-        # 2. event_roll (6 -> lightning)
-        # 3+. damage_roll (6 -> max damage)
-        rolls = [2, 6, 6, 6, 6, 6, 6, 6, 6]
-        def rng():
-            return rolls.pop(0) if rolls else 6
+        def test_movement_fail_can_kill(self):
+            st = make_state()
+            st["visible"]["hp"] = 1
+            st["hidden"]["hp_raw"] = 1
+            
+            # rng side_effect:
+            # 1. move_roll (2 -> fail)
+            # 2. event_roll (6 -> lightning)
+            # 3+. damage_roll (6 -> max damage)
+            rolls = [2, 6, 6, 6, 6, 6, 6, 6, 6]
+            def rng():
+                return rolls.pop(0) if rolls else 6
 
-        result = execute_action(Action("go_north", "Go"), st, rng=rng)
-        
-        assert st["visible"]["hp"] == 0
-        assert result.game_over is True, "Должен быть game_over, если HP упало до 0 от молнии"
+            result = execute_action(Action("go_north", "Go"), st, rng=rng)
+            
+            assert st["visible"]["hp"] == 0
+            assert result.game_over is True, "Должен быть game_over, если HP упало до 0 от молнии"
+
+        def test_movement_fail_lightning_sets_micro_location_before_death(self):
+            st = make_state()
+            st["visible"]["hp"] = 10
+            st["hidden"]["hp_raw"] = 10
+            
+            # rng: move_roll=2 (fail), event_roll=3 (lightning), damage_roll=6 (max 3d6)
+            rolls = [2, 3, 6, 6, 6]
+            def rng():
+                return rolls.pop(0) if rolls else 6
+
+            result = execute_action(Action("go_north", "Go"), st, rng=rng)
+            
+            assert st["visible"]["hp"] == 0
+            assert result.game_over is True
+            # ГЛАВНОЕ: micro_location должен быть записан, чтобы main.py увидел причину
+            assert st["hidden"]["micro_location"]["active"] is True
+            assert st["hidden"]["micro_location"]["event_type"] == "lightning"
+            assert st["hidden"]["micro_location"]["damage"] > 0
 
 
 # ─── Save/Load Integrity (TZ_for_GigaCode.md — пункт 2) ─────────

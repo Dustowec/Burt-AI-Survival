@@ -722,9 +722,8 @@ def _handle_movement_failure(
                 f"Micro-event: {micro_event.event_type}."
             )
 
-        if visible.get("hp", 0) <= 0:
-            return ActionResult(events=[event_msg], game_over=True)
-
+        # ВАЖНО: Записываем микролокацию ДО проверки на смерть,
+        # чтобы _determine_death_cause в main.py увидел причину
         hidden["micro_location"] = {
             "active": True,
             "source_node": current_node,
@@ -733,6 +732,9 @@ def _handle_movement_failure(
             "event_type": micro_event.event_type,
             "damage": damage,
         }
+
+        if visible.get("hp", 0) <= 0:
+            return ActionResult(events=[event_msg], game_over=True)
 
         return ActionResult(events=[event_msg])
 
