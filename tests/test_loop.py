@@ -23,10 +23,10 @@ from burt.bestiary import ENEMIES
 
 # ─── Общий помощник ────────────────────────────────────────
 
-def make_state(mode="exploring"):
+def make_state(mode="exploring", with_meta=True):
     """Базовое state: exploring, 4 выхода, world-граф старта."""
     from burt import world
-    return {
+    state = {
         "visible": {
             "hp": 10, "hp_max": 10, "mp": 3, "mp_max": 3,
             "eat": True, "sleep_counter": 5, "date": "1 day",
@@ -51,6 +51,13 @@ def make_state(mode="exploring"):
             "step": 0, "day": 1,
         },
     }
+    if with_meta:
+        state["meta"] = {
+            "life": 1, "day": 1, "step": 0,
+            "session_uuid": "test", "session_started": "2026-01-01T00:00:00",
+            "config_hash": "v0.7.0",
+        }
+    return state
 
 
 def _keys(actions):
@@ -437,6 +444,250 @@ class TestOsmotretPunishment:
         
         assert st["visible"]["hp"] == 0
         assert result.game_over is True, "Должен быть game_over, если HP упало до 0 от молнии"
+
+
+# ─── Save/Load Integrity (TZ_for_GigaCode.md — пункт 2) ─────────
+
+from burt.combat import start_combat, CombatState
+from burt.state import create_initial_state
+from burt.state_io import save_state, load_state
+
+
+def _full_state(mode="exploring", combat_dict=None):
+    """Создать полное state, проходящее validate_state."""
+    st = create_initial_state(
+        life=1,
+        session_uuid="test",
+        config_hash="v0.7.0",
+        session_started="2026-01-01T00:00:00",
+    )
+    st["hidden"]["current_mode"] = mode
+    if combat_dict is not None:
+        st["hidden"]["combat"] = combat_dict
+    return st
+
+
+def _tmp_state_path():
+    import tempfile
+    import pathlib
+    return pathlib.Path(tempfile.mkdtemp()) / "sl_test.json"
+
+
+class TestSaveLoadIntegrity:
+    """Проверка сохранения и загрузки критических полей.
+
+    Баги из живого прогона:
+    - После save+load Бурт в другой локации.
+    - После загрузки боя срабатывает повторный триггер засады.
+    - Волк наносит лишний удар (free_strike_done сбрасывается).
+    """
+
+    def test_current_node_id_preserved(self):
+        """current_node_id должен сохраняться после save+load."""
+        st = _full_state()
+        st["hidden"]["current_node_id"] = "node_5"
+        st["hidden"]["location_graph"]["node_5"] = {
+            "type": "forest",
+            "entered": True,
+            "exits": {"north": None, "south": "start", "east": None, "west": None},
+        }
+        tmp = _tmp_state_path()
+        try:
+            save_state(tmp, st)
+            loaded = load_state(tmp)
+            assert loaded["hidden"]["current_node_id"] == "node_5"
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+                tmp.parent.rmdir()
+
+    def test_location_graph_preserved(self):
+        """location_graph должен сохраняться полностью."""
+        st = _full_state()
+        custom_graph = {
+            "start": {"type": "crossroads", "entered": True,
+                       "exits": {"north": "node_1", "south": None, "east": None, "west": None}},
+            "node_1": {"type": "forest", "entered": False,
+                        "exits": {"north": None, "south": "start", "east": None, "west": None}},
+        }
+        st["hidden"]["location_graph"] = custom_graph
+        st["hidden"]["current_node_id"] = "node_1"
+        tmp = _tmp_state_path()
+        try:
+            save_state(tmp, st)
+            loaded = load_state(tmp)
+            assert loaded["hidden"]["location_graph"] == custom_graph
+            assert loaded["hidden"]["current_node_id"] == "node_1"
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+                tmp.parent.rmdir()
+
+    def test_current_mode_combat_preserved(self):
+        """current_mode='combat' должен сохраняться после save+load."""
+        st = _full_state("combat")
+        tmp = _tmp_state_path()
+        try:
+            save_state(tmp, st)
+            loaded = load_state(tmp)
+            assert loaded["hidden"]["current_mode"] == "combat"
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+                tmp.parent.rmdir()
+
+    def test_combat_state_preserved(self):
+        """CombatState (включая free_strike_done) должен сохраняться."""
+        cs = start_combat(["wolf"], "enemy")
+        cs.free_strike_done = True
+        st = _full_state("combat", combat_dict=cs.to_dict())
+        tmp = _tmp_state_path()
+        try:
+            save_state(tmp, st)
+            loaded = load_state(tmp)
+            loaded_cs = CombatState.from_dict(loaded["hidden"]["combat"])
+            assert loaded_cs.free_strike_done is True
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+                tmp.parent.rmdir()
+
+    def test_no_ambush_on_move_during_combat(self):
+        """Движение во время боя НЕ должно перезапускать бой.
+
+        Если current_mode == 'combat' и hidden['combat'] не None,
+        _maybe_start_combat_on_enter должен вернуть None.
+        """
+        st = make_state("combat")
+        cs = start_combat(["wolf"], "burt")
+        cs.free_strike_done = True
+        cs.round = 3
+        st["hidden"]["combat"] = cs.to_dict()
+        st["hidden"]["current_mode"] = "combat"
+        st["hidden"]["current_node_id"] = "start"
+        st["hidden"]["location_graph"]["start"]["type"] = "crossroads"
+        st["hidden"]["location_graph"]["start"]["entered"] = True
+        # Road node (north of start) — not an encounter location
+        road_node = st["hidden"]["location_graph"]["start"]["exits"]["north"]
+        if road_node and road_node in st["hidden"]["location_graph"]:
+            st["hidden"]["location_graph"][road_node]["type"] = "road"
+
+        result = execute_action(Action("go_north", "Go north"), st, rng=lambda: 4)
+
+        # Бой НЕ должен перезапуститься
+        assert st["hidden"]["current_mode"] == "combat", (
+            f"current_mode should stay 'combat' after move; got {st['hidden']['current_mode']}"
+        )
+        assert st["hidden"]["combat"] is not None, (
+            "combat state should not be None after move during combat"
+        )
+        loaded_cs = CombatState.from_dict(st["hidden"]["combat"])
+        assert loaded_cs.free_strike_done is True, (
+            "free_strike_done should remain True after move during combat"
+        )
+
+    def test_no_spawn_on_enter_during_combat_forest(self):
+        """Вход в ОПАСНУЮ локацию (forest) во время боя не должен спавнить врагов.
+
+        Это ключевой баг из ТЗ: после save+load, при движении Бурта в лес/болото/подземелье
+        может сработать _maybe_start_combat_on_enter и перезапустить бой.
+
+        RNG sequence:
+          1. move_roll = 4 → success (not fail)
+          2. encounter_roll = 1 → spawn (<=2) → BUG: should NOT spawn during combat
+        """
+        st = make_state("combat")
+        cs = start_combat(["wolf"], "burt")
+        cs.free_strike_done = True
+        cs.round = 3
+        st["hidden"]["combat"] = cs.to_dict()
+        st["hidden"]["current_mode"] = "combat"
+        st["hidden"]["current_node_id"] = "start"
+        st["hidden"]["location_graph"]["start"]["type"] = "crossroads"
+        st["hidden"]["location_graph"]["start"]["entered"] = True
+
+        # Настроим граф: north -> forest (encounter location — spawn roll <= 2)
+        north_node = "forest_bugfix"
+        st["hidden"]["location_graph"]["start"]["exits"]["north"] = north_node
+        st["hidden"]["location_graph"][north_node] = {
+            "type": "forest",
+            "entered": False,
+            "exits": {"north": None, "south": "start", "east": None, "west": None},
+        }
+
+        # RNG: move_roll=4 (success), encounter_roll=1 (<=2 → spawn)
+        call_count = [0]
+        def rng():
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return 4  # move success
+            return 1  # encounter spawn (triggers bug)
+
+        result = execute_action(Action("go_north", "Go north"), st, rng=rng)
+
+        # Бой НЕ должен перезапуститься даже при входе в dangerous location
+        assert st["hidden"]["current_mode"] == "combat", (
+            f"current_mode should stay 'combat' after entering forest during combat; "
+            f"got {st['hidden']['current_mode']}"
+        )
+        assert st["hidden"]["combat"] is not None, (
+            "combat state should NOT be None after entering forest during combat"
+        )
+        loaded_cs = CombatState.from_dict(st["hidden"]["combat"])
+        assert loaded_cs.free_strike_done is True, (
+            f"free_strike_done should remain True; got {loaded_cs.free_strike_done}"
+        )
+        assert loaded_cs.round == 3, (
+            f"combat round should be preserved at 3; got {loaded_cs.round}"
+        )
+
+    def test_free_strike_done_not_reset_on_load(self):
+        """После save+load free_strike_done должен остаться True."""
+        cs = start_combat(["wolf"], "enemy")
+        cs.free_strike_done = True
+        cs.round = 2
+        st = _full_state("combat", combat_dict=cs.to_dict())
+
+        tmp = _tmp_state_path()
+        try:
+            save_state(tmp, st)
+            loaded = load_state(tmp)
+            loaded_cs = CombatState.from_dict(loaded["hidden"]["combat"])
+            assert loaded_cs.free_strike_done is True
+            assert loaded_cs.round == 2
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+                tmp.parent.rmdir()
+
+    def test_no_free_strike_on_load_with_active_combat(self):
+        """После загрузки состояния с active combat волк НЕ должен бить бесплатно.
+
+        Это проверяет что free_strike_done=True сохраняется и
+        resolve_round не запускает ambush-секцию.
+        """
+        from burt import combat
+
+        st = make_state("combat")
+        cs = start_combat(["wolf"], "enemy")
+        cs.free_strike_done = True
+        cs.round = 5
+        st["hidden"]["combat"] = cs.to_dict()
+
+        # Симулируем round: Burt attacks
+        burt_stats = combat.BurtStats(hp=8, hp_max=10, mp=2, mp_max=3)
+        enemy = cs.enemies[0]
+
+        result = combat.resolve_round(
+            cs, burt_stats, "attack", enemy.id,
+            rng=lambda: 4,  # hit
+        )
+
+        # free_strike_done должен остаться True (не должен сброситься)
+        assert cs.free_strike_done is True
+        # Бой должен продолжаться (burt не умер)
+        assert result.outcome == "ongoing"
+        assert result.combat.free_strike_done is True
 
 
 # ─── Movement failure: single event per fail (BUGFIX — Вариант А) ────

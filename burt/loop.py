@@ -648,7 +648,15 @@ def _maybe_start_combat_on_enter(
     visible: dict,
     rng,
 ) -> str | None:
-    """Roll encounter on entering a location (O1: on-entry roll)."""
+    """Roll encounter on entering a location (O1: on-entry roll).
+
+    If combat is already active (hidden["combat"] is not None),
+    do NOT start a new combat — this prevents bugs on save/load
+    where movement during combat would overwrite the existing state.
+    """
+    if hidden.get("combat") is not None:
+        return None
+
     if location_type == _AMBUSH_LOCATION:
         enemies = spawn.spawn_ambush(rng(), rng())
         return _start_combat(enemies, "enemy", hidden, visible)
