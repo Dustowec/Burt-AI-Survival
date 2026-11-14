@@ -399,8 +399,69 @@ class TestCallLlm:
 
 
 # ---------------------------------------------------------------------
-# TestBackendSwitching
+# TestEngineRejectsSystemRole (Gemma 3n optimization)
 # ---------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _reset_engine_flag():
+    """Сбрасываем флаг перед каждым тестом, чтобы тесты не влияли друг на друга."""
+    llm_client._engine_rejects_system_role = False
+    yield
+    llm_client._engine_rejects_system_role = False
+
+
+class TestEngineRejectsSystemRole:
+    """Оптимизация для движков, не поддерживающих role=system (Gemma 3n)."""
+
+    @pytest.mark.asyncio
+    async def test_first_call_uses_system_role(self):
+        """При _engine_rejects_system_role=False первый вызов использует role=system."""
+        with patch.object(llm_client, "create_chat_completion") as mock_create:
+            mock_create.return_value = {"choices": [{"message": {"content": "OK"}}]}
+
+            await llm_client.call_llm("sys prompt", "user msg", [])
+
+            # mock_create вызывается ровно 1 раз
+            assert mock_create.call_count == 1
+            # Первый (и единственный) вызов получает messages с role="system"
+            calls_args = mock_create.call_args_list[0][0][0]
+            assert calls_args[0]["role"] == "system"
+            assert calls_args[0]["content"] == "sys prompt"
+
+    @pytest.mark.asyncio
+    async def test_second_call_uses_user_role_if_flag_is_true(self):
+        """При _engine_rejects_system_role=True call_llm сразу отправляет role=user."""
+        llm_client._engine_rejects_system_role = True
+
+        with patch.object(llm_client, "create_chat_completion") as mock_create:
+            mock_create.return_value = {"choices": [{"message": {"content": "Ok"}}]}
+
+            result, history = await llm_client.call_llm("sys prompt", "user msg", [])
+
+            assert result == "Ok"
+            assert len(history) == 1
+            # Вызывается ровно 1 раз — без предварительного падения
+            assert mock_create.call_count == 1
+            # Первый вызов получает messages с role="user" вместо "system"
+            calls_args = mock_create.call_args_list[0][0][0]
+            assert calls_args[0]["role"] == "user"
+            assert calls_args[0]["content"] == "sys prompt"
+
+    @pytest.mark.asyncio
+    async def test_retry_sets_global_flag(self):
+        """Пойманная ошибка 'roles must alternate' устанавливает флаг в True."""
+        with patch.object(llm_client, "create_chat_completion") as mock_create:
+            mock_create.side_effect = [
+                RuntimeError("LLM API error 400: roles must alternate user/assistant"),
+                {"choices": [{"message": {"content": "Ok"}}]},
+            ]
+
+            result, history = await llm_client.call_llm("sys prompt", "user msg", [])
+
+            assert result == "Ok"
+            assert len(history) == 1
+            # Флаг установлен после первого провала
+            assert llm_client._engine_rejects_system_role is True
 
 class TestBackendSwitching:
     """Поддержка двух бэкендов."""

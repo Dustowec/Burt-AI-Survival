@@ -52,6 +52,10 @@ _FALLBACK_ANSWER = "Darkness consumes. You don't remember where you were going."
 # Number of retries on transient failure
 _MAX_RETRIES = 1
 
+# Flag: some engines (e.g. Gemma 3n) reject 'system' role entirely.
+# Once detected, all subsequent calls skip 'system' and use 'user' instead.
+_engine_rejects_system_role: bool = False
+
 
 # ---------------------------------------------------------------------
 # Low-level API call
@@ -118,11 +122,15 @@ async def call_llm(
     5. Если ошибка/пустой ответ и попытки исчерпаны -> fallback
        (тоже без append в историю).
     """
+    global _engine_rejects_system_role
+
     if messages_history is None:
         messages_history = []
 
+    # Если движок отвергает 'system' (Gemma 3n), используем 'user' вместо него.
+    _role = "user" if _engine_rejects_system_role else "system"
     full_messages = [
-        {"role": "system", "content": system_msg},
+        {"role": _role, "content": system_msg},
         *messages_history,
         {"role": "user", "content": user_msg},
     ]
@@ -167,6 +175,7 @@ async def call_llm(
             
             # ХАК ДЛЯ GEMMA/LM STUDIO: если движок вырезает system и падает на чередовании
             if "roles must alternate" in str(e) and full_messages[0]["role"] == "system":
+                _engine_rejects_system_role = True
                 logger.warning("Engine rejected 'system' role (likely Gemma). Retrying with 'user' role.")
                 # Делаем копию, чтобы не мутировать аргументы первого вызова
                 full_messages = [dict(m) for m in full_messages]
