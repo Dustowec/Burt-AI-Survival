@@ -65,7 +65,6 @@ LLM_TIMEOUT_SECONDS = 180
 
 HP_DISPLAY = "numbers"       # §24: "numbers" | иной режим
 SHOW_HUNGER_TIMER = False    # §25: голод — качественно
-SHOW_SLEEP_TIMER = True      # §25: сон — счётчиком
 SHOW_DATE = True
 
 

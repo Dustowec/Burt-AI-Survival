@@ -6,7 +6,7 @@
 Формат (§25):
     [STATE]
     HP: 12/20 | MP: 3/5
-    Hunger: full | Sleep: 15/20
+    Hunger: full
     Date: 7 day
     Effects: blessed
 
@@ -107,27 +107,22 @@ class TestStateSection:
         out = sensory.format_sensory_report(_visible())
         assert "HP: 12/20 | MP: 3/5" in out
 
-    def test_hunger_syt(self):
+    def test_hunger_full(self):
         out = sensory.format_sensory_report(_visible(eat=True))
         assert "Hunger: full" in out
+        assert "Sleep:" not in out
 
-    def test_hunger_goloden(self):
+    def test_hunger_hungry(self):
         out = sensory.format_sensory_report(_visible(eat=False))
         assert "Hunger: hungry" in out
+        assert "Sleep:" not in out
 
-    def test_sleep_timer_shown(self):
-        out = sensory.format_sensory_report(_visible(sleep_counter=15))
-        assert "Sleep: 15/20" in out
-
-    def test_sleep_zero(self):
-        out = sensory.format_sensory_report(_visible(sleep_counter=0))
-        assert "Sleep: 0/20" in out
-
-    def test_hunger_and_sleep_same_line(self):
+    def test_no_sleep_line_in_state(self):
+        """Sleep: строка НЕ должна выводиться в [STATE]."""
         out = sensory.format_sensory_report(
             _visible(eat=True, sleep_counter=15)
         )
-        assert "Hunger: full | Sleep: 15/20" in out
+        assert "Sleep:" not in out
 
     def test_date_shown(self):
         out = sensory.format_sensory_report(_visible(date="7 day"))
@@ -204,7 +199,7 @@ class TestStateHpQualitative:
 
 
 # ---------------------------------------------------------------------
-# [STATE] — SHOW_DATE / SHOW_SLEEP_TIMER
+# [STATE] — SHOW_DATE
 # ---------------------------------------------------------------------
 
 class TestStateFlags:
@@ -212,22 +207,6 @@ class TestStateFlags:
         monkeypatch.setattr(config, "SHOW_DATE", False)
         out = sensory.format_sensory_report(_visible(date="7 day"))
         assert "Date:" not in out
-
-    def test_show_sleep_timer_false_qualitative(self, monkeypatch):
-        monkeypatch.setattr(config, "SHOW_SLEEP_TIMER", False)
-        out = sensory.format_sensory_report(_visible(sleep_counter=15))
-        assert "15/20" not in out
-        assert "Sleep:" in out
-
-    def test_show_sleep_timer_false_bodr(self, monkeypatch):
-        monkeypatch.setattr(config, "SHOW_SLEEP_TIMER", False)
-        out = sensory.format_sensory_report(_visible(sleep_counter=5))
-        assert "Sleep: fresh" in out
-
-    def test_show_sleep_timer_false_ustal(self, monkeypatch):
-        monkeypatch.setattr(config, "SHOW_SLEEP_TIMER", False)
-        out = sensory.format_sensory_report(_visible(sleep_counter=19))
-        assert "Sleep: tired" in out
 
 
 # ---------------------------------------------------------------------
@@ -450,7 +429,7 @@ class TestFullReport:
         expected = (
             "[STATE]\n"
             "HP: 12/20 | MP: 3/5\n"
-            "Hunger: full | Sleep: 15/20\n"
+            "Hunger: full\n"
             "Date: 7 day\n"
             "Effects: blessed\n"
             "\n"

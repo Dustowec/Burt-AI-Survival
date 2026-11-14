@@ -128,10 +128,10 @@ def build_menu(visible: dict, state: dict) -> list[Action]:
 
     actions.append(Action(key="search", label="Search"))
 
-    sc = visible.get("sleep_counter", 0)
+    step = hidden.get("step", 0)
     hp = visible.get("hp", 10)
     hp_max = visible.get("hp_max", 10)
-    if sc >= 19 or (hp_max > 0 and hp * 100 < hp_max * 25):
+    if step >= 19 or (hp_max > 0 and hp * 100 < hp_max * 25):
         actions.append(Action(key="sleep", label="Sleep"))
 
     inventory = visible.get("inventory", [])

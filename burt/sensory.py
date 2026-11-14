@@ -40,10 +40,6 @@ _EFFECTS_RU = {
     "cursed": "cursed",
 }
 
-# §5: на шаге 19 → 20 инжект "ты very tired".
-# При SHOW_SLEEP_TIMER=False показываем качественно от этого порога.
-_SLEEP_TIRED_AT = 19
-
 
 # ---------------------------------------------------------------------
 # Публичная функция
@@ -108,14 +104,7 @@ def _hp_qualitative(hp: int, hp_max: int) -> str:
 
 def _format_hunger_sleep(visible: dict) -> str:
     hunger = "full" if visible["eat"] else "hungry"
-
-    if config.SHOW_SLEEP_TIMER:
-        sleep = f"{visible['sleep_counter']}/{config.DAY_STEPS}"
-    else:
-        sc = visible["sleep_counter"]
-        sleep = "tired" if sc >= _SLEEP_TIRED_AT else "fresh"
-
-    return f"Hunger: {hunger} | Sleep: {sleep}"
+    return f"Hunger: {hunger}"
 
 
 def _format_effects(effects: list) -> str | None:

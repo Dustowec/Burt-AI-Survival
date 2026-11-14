@@ -1,70 +1,64 @@
-ТЕХНИЧЕСКОЕ ЗАДАНИЕ ДЛЯ ИИ-АГЕНТА (Пункт 2)
-Контекст: Проект BURT-AI (текстовая RPG). TDD обязателен. Все тесты сейчас зелёные (1458+ passed). Код, docstrings, имена — только на английском.
+ТЕХНИЧЕСКОЕ ЗАДАНИЕ ДЛЯ ИИ-АГЕНТА (Пункт 4)
+Контекст: Проект BURT-AI (текстовая RPG). TDD обязателен. Все тесты сейчас зелёные (1467+ passed). Код, docstrings, имена — только на английском.
 
-Цель: Исправить баги, связанные с сохранением и загрузкой состояния (Save/Load).
+Цель: Убрать бесполезный счётчик сна из сенсорного отчёта и починить появление пункта «Sleep» в меню.
 
-Симптомы (из живого прогона Gemma 3n-E4B, 45 ходов):
+Текущие проблемы (Баг):
 
-После save + load Бурт оказывается в другой локации (например, был в node_5, стал в start). Этого быть не должно.
+В burt/sensory.py в секции [STATE] выводится Sleep: 0/20. Но visible["sleep_counter"] никогда не инкрементируется и всегда равен 0. Это дезинформирует модель (она думает, что день только начался, даже если шаг 15).
 
-После загрузки бой продолжается (это правильно), но:
+В burt/loop.py в функции build_menu условие появления пункта sleep завязано на visible.get("sleep_counter", 0) >= 19. Так как счётчик всегда 0, этот пункт меню никогда не появляется (кроме случая, когда HP < 25%).
 
-Срабатывает повторный триггер засады (ambush) — быть не должно, бой уже идёт.
+Требуемое поведение:
 
-Волк наносит лишний удар (free strike) — быть не должно, free_strike_done уже True.
+Убрать счётчик сна из сенсорики. В [STATE] должна остаться только строка Hunger: full/hungry. Никаких Sleep: ....
 
-Гипотезы для исследования (проверить в первую очередь):
+Удалить флаг SHOW_SLEEP_TIMER из config.py (он больше не нужен).
 
-state_io.load_state: теряет ли он hidden["current_node_id"], hidden["location_graph"], hidden["current_mode"], hidden["combat"]?
+Починить меню. В build_menu использовать hidden.get("step", 0) вместо visible.get("sleep_counter", 0). Пункт sleep должен появляться, когда step >= 19 или hp < 25% от hp_max.
 
-main.py (загрузка состояния): не вызывает ли он _maybe_start_combat_on_enter или другие функции, которые перезаписывают current_mode/combat?
-
-combat.CombatState.to_dict / from_dict: сохраняется ли флаг free_strike_done? (Судя по коду, сохраняется, но нужно проверить на практике.)
-
-main._ensure_runtime_fields: использует setdefault, не перетирает ли он уже существующие значения?
+Синхронизация не нужна. Поле visible["sleep_counter"] можно оставить в структуре state (чтобы не ломать сохранения), но в логике оно больше не участвует.
 
 Файлы для изменения:
 
-burt/state_io.py (или main.py, если баг там).
+burt/sensory.py
 
-burt/combat.py (если проблема в сериализации).
+burt/loop.py
 
-tests/test_state_io.py, tests/test_main.py (red-тесты).
+config.py
+
+Тесты: tests/test_sensory.py, tests/test_loop.py, tests/test_config.py.
 
 План работ (TDD):
 
-В tests/test_state_io.py (или tests/test_main.py, если state_io не хватает) создай класс TestSaveLoadIntegrity.
+Напиши/обнови red-тесты:
 
-Напиши тесты:
+tests/test_sensory.py: в тестах [STATE] проверь, что строки "Sleep:" нет в отчёте.
 
-test_current_node_id_preserved: state с hidden["current_node_id"] = "node_5". Save → Load. Проверить: loaded_state["hidden"]["current_node_id"] == "node_5".
+tests/test_loop.py (класс TestBuildMenuExploring):
 
-test_location_graph_preserved: state с кастомным графом. Save → Load. Граф идентичен.
+Удали/переименуй старый тест test_sleep_present_at_sc_19.
 
-test_current_mode_combat_preserved: state с hidden["current_mode"] = "combat". Save → Load. Проверить: current_mode == "combat".
+Добавь test_sleep_present_at_step_19: установи st["hidden"]["step"] = 19, проверь, что sleep есть в меню.
 
-test_combat_state_preserved: state с hidden["combat"] = CombatState(...).to_dict(), где free_strike_done=True. Save → Load. Проверить: free_strike_done всё ещё True.
+Добавь test_sleep_present_at_critical_hp (оставь как есть, но убедись, что он работает).
 
-test_no_ambush_on_load: после загрузки состояния с current_mode="combat" и активным combat, вызов run_turn не должен триггерить засаду (проверить, что hidden["combat"]["free_strike_done"] не сбросился и волк не бьёт «бесплатно»).
+tests/test_config.py: удали тест test_show_sleep_timer_is_true, если он есть.
 
-Убедись, что тесты падают (red state).
+Убедись, что новые тесты падают (red state).
 
-Найди и исправь причину (вероятно, в state_io.py или main.py).
+Отредактируй burt/sensory.py: убери вывод Sleep: из _format_hunger_sleep.
 
-Прогони pytest tests/ -q. Все тесты зелёные (1458 + новые).
+Отредактируй burt/loop.py: в build_menu замени sc = visible.get("sleep_counter", 0) на step = hidden.get("step", 0).
+
+Удали SHOW_SLEEP_TIMER из config.py.
+
+Прогони .\.venv\Scripts\pytest.exe tests/ -q. Все тесты зелёные (1467 + новые).
 
 Важные ограничения:
 
-Не меняй burt/loop.py, burt/sensory.py, burt/hunger.py, burt/sleep.py. Задача локальная для state_io.py, main.py (загрузка) и combat.py (если нужно).
+Не меняй main.py, burt/combat.py, burt/hunger.py, burt/sleep.py.
 
-Если баг в combat.py (сериализация), правь только to_dict/from_dict для CombatState, не трогая боевую логику.
+Не удаляй sleep_counter из state.py (это сломает валидацию старых сейвов, оставь как legacy-поле).
 
-Покажи git diff по изменённым файлам и результат pytest -q.
-
-Формат сдачи:
-
-Все тесты зелёные (укажи число).
-
-git diff с изменениями.
-
-Краткое описание: в чём была причина, что исправил.
+Покажи git diff по всем изменённым файлам и результат pytest -q.

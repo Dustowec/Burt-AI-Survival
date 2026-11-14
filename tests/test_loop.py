@@ -95,14 +95,14 @@ class TestBuildMenuExploring:
         st = make_state()
         assert "search" in _keys(build_menu(st["visible"], st))
 
-    def test_sleep_absent_at_fresh_counter(self):
+    def test_sleep_absent_at_step_0(self):
         st = make_state()
-        st["visible"]["sleep_counter"] = 5
+        st["hidden"]["step"] = 0
         assert "sleep" not in _keys(build_menu(st["visible"], st))
 
-    def test_sleep_present_at_sc_19(self):
+    def test_sleep_present_at_step_19(self):
         st = make_state()
-        st["visible"]["sleep_counter"] = 19
+        st["hidden"]["step"] = 19
         assert "sleep" in _keys(build_menu(st["visible"], st))
 
     def test_sleep_present_at_critical_hp(self):

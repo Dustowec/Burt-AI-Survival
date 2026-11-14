@@ -272,7 +272,7 @@ class TestStateMutationConsistency:
     def test_hp_restored_after_sleep(self):
         st = make_state()
         st["visible"]["hp"] = 3
-        st["visible"]["sleep_counter"] = 19
+        st["hidden"]["step"] = 19
         menu = build_menu(st["visible"], st)
         sleep_action = None
         for a in menu:

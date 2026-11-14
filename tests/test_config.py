@@ -27,10 +27,6 @@ class TestDisplay:
         # §25: голод показывается качественно, не счётчиком
         assert config.SHOW_HUNGER_TIMER is False
 
-    def test_show_sleep_timer_is_true(self):
-        # §25: сон показывается счётчиком
-        assert config.SHOW_SLEEP_TIMER is True
-
     def test_show_date_is_true(self):
         assert config.SHOW_DATE is True
 
