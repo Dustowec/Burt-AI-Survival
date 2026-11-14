@@ -429,7 +429,7 @@ class TestOsmotretPunishment:
         # 1. move_roll (2 -> fail)
         # 2. event_roll (6 -> lightning)
         # 3+. damage_roll (6 -> max damage)
-        rolls = [2, 6, 6, 6, 6, 6, 6]
+        rolls = [2, 6, 6, 6, 6, 6, 6, 6, 6]
         def rng():
             return rolls.pop(0) if rolls else 6
 
@@ -437,3 +437,107 @@ class TestOsmotretPunishment:
         
         assert st["visible"]["hp"] == 0
         assert result.game_over is True, "Должен быть game_over, если HP упало до 0 от молнии"
+
+
+# ─── Movement failure: single event per fail (BUGFIX — Вариант А) ────
+
+
+class TestMovementFailureSingleEvent:
+    """
+    One movement failure = strictly one event.
+    
+    fail → only micro_event (lightning/tree/stone/god_wrath).
+    fail_bad → only bad_movement_event (trap/sprain/ambush), micro skipped.
+    """
+
+    def test_fail_rolls_only_micro_event(self):
+        """При move_result == 'fail' урон наносится ОДИН раз (микро-событие).
+        
+        fail_bad не должен запускать trap/ambush.
+        """
+        st = make_state()
+        st["visible"]["hp"] = 10
+        
+        # rng sequence:
+        # 1. move_roll = 2 → fail
+        # 2. event_roll = 3 → lightning (3d6) [roll 3→lightning, 6→tree]
+        # 3-5. damage dice = 1, 1, 1 → минимальный урон от молнии = 3
+        rolls = [2, 3, 1, 1, 1]
+        def rng():
+            return rolls.pop(0) if rolls else 1
+
+        result = execute_action(Action("go_north", "Go"), st, rng=rng)
+        
+        # Урон только от молнии (3), не должно быть двойного
+        assert st["visible"]["hp"] == 7
+        assert not result.game_over
+        all_events = " ".join(result.events)
+        assert "lightning" in all_events.lower() or "micro" in all_events.lower()
+        assert "trap" not in all_events.lower()
+        assert "ambush" not in all_events.lower()
+
+    def test_fail_bad_rolls_only_bad_event(self):
+        """При move_result == 'fail_bad' урон ТОЛЬКО от bad_movement_event.
+        
+        Микро-событие (молния) НЕ должно срабатывать.
+        """
+        st = make_state()
+        st["visible"]["hp"] = 10
+        
+        # rng sequence (micro event roll is SKIPPED for fail_bad):
+        # 1. move_roll = 1 → fail_bad
+        # 2. bad_roll = 1 → trap (extra_damage = rng())
+        # 3. trap damage dice = 1 → extra_damage = 1
+        rolls = [1, 1, 1]
+        def rng():
+            return rolls.pop(0) if rolls else 1
+
+        result = execute_action(Action("go_north", "Go"), st, rng=rng)
+        
+        # Урон только от ловушки (1), HP = 9
+        assert st["visible"]["hp"] == 9
+        assert not result.game_over
+        all_events = " ".join(result.events)
+        assert "trap" in all_events.lower()
+        assert "lightning" not in all_events.lower()
+
+    def test_fail_bad_can_kill(self):
+        """Если extra_damage от ловушки убивает → game_over=True."""
+        st = make_state()
+        st["visible"]["hp"] = 1
+        st["hidden"]["hp_raw"] = 1
+        
+        # rng sequence (micro event roll is SKIPPED):
+        # 1. move_roll = 1 → fail_bad
+        # 2. bad_roll = 1 → trap
+        # 3. trap damage = 6 (убивает)
+        rolls = [1, 1, 6]
+        def rng():
+            return rolls.pop(0) if rolls else 6
+
+        result = execute_action(Action("go_north", "Go"), st, rng=rng)
+        
+        assert st["visible"]["hp"] == 0
+        assert result.game_over is True
+
+    def test_fail_bad_can_start_combat(self):
+        """Если starts_combat=True → бой начинается, mode=combat."""
+        st = make_state()
+        st["visible"]["hp"] = 10
+        # Dangerous location: forest
+        st["hidden"]["location_graph"]["start"]["type"] = "forest"
+        
+        # rng sequence (micro event roll is SKIPPED):
+        # 1. move_roll = 1 → fail_bad
+        # 2. bad_roll = 3 → ambush (starts_combat=True)
+        rolls = [1, 3]
+        def rng():
+            return rolls.pop(0) if rolls else 3
+
+        result = execute_action(Action("go_north", "Go"), st, rng=rng)
+        
+        # Бой должен начаться
+        assert st["hidden"]["current_mode"] == "combat"
+        assert st["hidden"]["combat"] is not None
+        all_events = " ".join(result.events)
+        assert "ambush" in all_events.lower()

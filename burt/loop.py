@@ -672,7 +672,12 @@ def _handle_movement_failure(
     visible: dict,
     rng,
 ) -> ActionResult:
-    """Movement failure (§11) — micro-location with 2 exits."""
+    """Movement failure (§11) — micro-location with 2 exits.
+
+    One failure = strictly one event:
+      fail    → only micro_event (lightning/tree/stone/god_wrath).
+      fail_bad → only bad_movement_event (trap/sprain/ambush), micro skipped.
+    """
     hidden["step"] = hidden.get("step", 0) + 1
 
     current_node = hidden.get("current_node_id", "start")
@@ -684,81 +689,96 @@ def _handle_movement_failure(
     else:
         next_id = current_node_data.get(direction)
 
-    event_roll = rng()
+    # ── fail: only micro_event ──────────────────────────────
+    if move_result == "fail":
+        event_roll = rng()
+        level = visible.get("level", 1)
+        micro_event = resolve_micro_event(event_roll, level)
+        damage = calculate_micro_damage(micro_event, rng)
+
+        new_hp = visible.get("hp", 10) - damage
+        if new_hp < 0:
+            new_hp = 0
+        visible["hp"] = new_hp
+        hidden["hp_raw"] = new_hp
+
+        if damage > 0:
+            event_msg = (
+                f"Failed to move {direction}. "
+                f"Micro-event: {micro_event.event_type}. "
+                f"Took {damage} damage."
+            )
+        else:
+            event_msg = (
+                f"Failed to move {direction}. "
+                f"Micro-event: {micro_event.event_type}."
+            )
+
+        if visible.get("hp", 0) <= 0:
+            return ActionResult(events=[event_msg], game_over=True)
+
+        hidden["micro_location"] = {
+            "active": True,
+            "source_node": current_node,
+            "target_node": next_id,
+            "direction": direction,
+            "event_type": micro_event.event_type,
+            "damage": damage,
+        }
+
+        return ActionResult(events=[event_msg])
+
+    # ── fail_bad: only bad_movement_event (micro skipped) ───
+    # move_result == "fail_bad"
+    location_type = current_node_data.get("type") or ""
+    is_dangerous = location_type in _ENCOUNTER_LOCATIONS
+
+    bad_roll = rng()
     level = visible.get("level", 1)
-    micro_event = resolve_micro_event(event_roll, level)
+    ev = resolve_bad_movement_event(
+        bad_roll, level=level, rng=rng, is_dangerous=is_dangerous,
+    )
 
-    damage = calculate_micro_damage(micro_event, rng)
+    # Always include the base message so the log doesn't look empty
+    events_list: list[str] = [f"Failed to move {direction}."]
 
-    new_hp = visible.get("hp", 10) - damage
-    if new_hp < 0:
-        new_hp = 0
-    visible["hp"] = new_hp
-    hidden["hp_raw"] = new_hp
+    if ev.event_type != "nothing" and ev.description:
+        events_list.append(ev.description)
 
-    if damage > 0:
-        event_msg = (
-            f"Failed to move {direction}. "
-            f"Micro-event: {micro_event.event_type}. "
-            f"Took {damage} damage."
-        )
-    else:
-        event_msg = (
-            f"Failed to move {direction}. "
-            f"Micro-event: {micro_event.event_type}."
-        )
+    if ev.extra_damage > 0:
+        events_list.append(f"Took {ev.extra_damage} extra damage.")
+        new_hp = visible.get("hp", 10) - ev.extra_damage
+        if new_hp < 0:
+            new_hp = 0
+        visible["hp"] = new_hp
+        hidden["hp_raw"] = new_hp
 
-    # ── ПРОВЕРКА СМЕРТИ ОТ МИКРО-СОБЫТИЯ (вынесена из fail_bad) ──
-    if visible.get("hp", 0) <= 0:
-        return ActionResult(events=[event_msg], game_over=True)
-
+    # ВАЖНО: записываем микролокацию ДО проверки на бой,
+    # чтобы после боя Бурт остался в ловушке (с меню go_back/go_forward)
     hidden["micro_location"] = {
         "active": True,
         "source_node": current_node,
         "target_node": next_id,
         "direction": direction,
-        "event_type": micro_event.event_type,
-        "damage": damage,
+        "event_type": ev.event_type,
+        "damage": ev.extra_damage,
     }
 
-    if move_result == "fail_bad":
-        current_node_data = graph.get(current_node, {})
-        location_type = current_node_data.get("type") or ""
-        is_dangerous = location_type in _ENCOUNTER_LOCATIONS
+    if visible.get("hp", 0) <= 0:
+        return ActionResult(events=events_list, game_over=True)
 
-        bad_roll = rng()
-        level = visible.get("level", 1)
-        ev = resolve_bad_movement_event(
-            bad_roll, level=level, rng=rng, is_dangerous=is_dangerous,
-        )
+    if ev.starts_combat:
+        spawn_key = _ENCOUNTER_LOCATIONS.get(location_type)
+        if spawn_key is not None:
+            enemies = spawn.spawn_random(spawn_key, rng(), rng())
+            if enemies:
+                combat_report = _start_combat(
+                    enemies, "enemy", hidden, visible,
+                )
+                events_list.append(combat_report)
+                return ActionResult(events=events_list)
 
-        if ev.extra_damage > 0:
-            new_hp = visible.get("hp", 10) - ev.extra_damage
-            if new_hp < 0:
-                new_hp = 0
-            visible["hp"] = new_hp
-            hidden["hp_raw"] = new_hp
-
-        events_list = [event_msg]
-        if ev.event_type != "nothing":
-            events_list.append(ev.description)
-
-        if visible.get("hp", 0) <= 0:
-            return ActionResult(events=events_list, game_over=True)
-
-        if ev.starts_combat:
-            spawn_key = _ENCOUNTER_LOCATIONS.get(location_type)
-            if spawn_key is not None:
-                enemies = spawn.spawn_random(spawn_key, rng(), rng())
-                if enemies:
-                    combat_report = _start_combat(
-                        enemies, "enemy", hidden, visible,
-                    )
-                    events_list.append(combat_report)
-                    return ActionResult(events=events_list)
-
-        return ActionResult(events=events_list)
-    return ActionResult(events=[event_msg])
+    return ActionResult(events=events_list)
 
 
 def _resolve_location_name(loc_type: str, node_id: str) -> str:

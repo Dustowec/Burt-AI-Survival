@@ -146,23 +146,23 @@ class TestHandleMovementFailureBadEvents:
     """Bad events in _handle_movement_failure integration tests."""
 
     def test_roll_1_triggers_bad_event(self):
-        """Movement roll=1 (fail_bad) → bad event applied (trap)."""
+        """Movement roll=1 (fail_bad) → bad event applied (trap), micro SKIPPED."""
         st = make_state()
-        # RNG order (called directly in _handle_movement_failure):
-        # [event_roll, damage_roll, bad_roll, extra_roll]
-        # event=1(stone), damage=5, bad=1(trap), extra=3
-        rng = _seq_rng([1, 5, 1, 3])
+        # RNG order (micro event is SKIPPED for fail_bad):
+        # [bad_roll, extra_roll]
+        # bad=1(trap), extra=3
+        rng = _seq_rng([1, 3])
         result = _handle_movement_failure(
             "north", "fail_bad", st["hidden"], st["visible"], rng,
         )
         assert isinstance(result, ActionResult)
-        # HP = 10 - 5 (stone) - 3 (trap) = 2
-        assert st["visible"]["hp"] == 2
-        assert st["hidden"]["hp_raw"] == 2
-        # Event message should contain direction and micro event
-        assert any("north" in ev for ev in result.events)
+        # HP = 10 - 3 (trap only, micro skipped) = 7
+        assert st["visible"]["hp"] == 7
+        assert st["hidden"]["hp_raw"] == 7
         # Trap description should be in events
         assert any("trap" in ev.lower() for ev in result.events)
+        # Extra damage should be mentioned
+        assert any("3 extra damage" in ev for ev in result.events)
 
     def test_roll_2_no_bad_event(self):
         """Movement roll=2 (fail) → resolve_bad_movement_event NOT called."""
@@ -199,7 +199,10 @@ class TestHandleMovementFailureBadEvents:
             loop_mod.resolve_bad_movement_event = original_func
 
     def test_bad_event_ambush_in_loop_starts_combat(self):
-        """Movement roll=1 + bad_roll=3 in dangerous location → combat started."""
+        """Movement roll=1 + bad_roll=3 in dangerous location → combat started.
+        
+        Micro event is SKIPPED for fail_bad.
+        """
         graph = _mini_graph("forest", {"north": "target"})
         st = {
             "visible": {
@@ -222,10 +225,10 @@ class TestHandleMovementFailureBadEvents:
                 "step": 0, "day": 1,
             },
         }
-        # RNG order (called directly in _handle_movement_failure):
-        # [event_roll, damage_roll, bad_roll, spawn_roll1, spawn_roll2]
-        # event=1(stone), damage=1, bad=3(ambush), spawn×2
-        rng = _seq_rng([1, 1, 3, 1, 1])
+        # RNG order (micro event is SKIPPED for fail_bad):
+        # [bad_roll, spawn_roll1, spawn_roll2]
+        # bad=3(ambush), spawn×2
+        rng = _seq_rng([3, 1, 1])
         result = _handle_movement_failure(
             "north", "fail_bad", st["hidden"], st["visible"], rng,
         )
@@ -235,13 +238,17 @@ class TestHandleMovementFailureBadEvents:
         assert any("[COMBAT]" in ev for ev in result.events)
 
     def test_bad_event_does_not_start_combat_if_burt_dead(self):
-        """HP=0 after micro+bad event → game_over=True, combat NOT started."""
+        """HP=0 after bad event → game_over=True, combat NOT started.
+        
+        Micro event is SKIPPED for fail_bad.
+        """
         st = make_state()
-        # RNG order (called directly in _handle_movement_failure):
-        # [event_roll, damage_roll, bad_roll, extra_roll]
-        # event=1(stone), damage=6, bad=1(trap), extra=6
-        # HP = 10 - 6 - 6 = -1 → cap 0 → game_over=True
-        rng = _seq_rng([1, 6, 1, 6])
+        st["visible"]["hp"] = 3
+        st["hidden"]["hp_raw"] = 3
+        # RNG order (micro event is SKIPPED for fail_bad):
+        # [bad_roll, extra_roll]
+        # bad=1(trap), extra=6 → kills (3 - 6 = -3 → cap 0)
+        rng = _seq_rng([1, 6])
         result = _handle_movement_failure(
             "north", "fail_bad", st["hidden"], st["visible"], rng,
         )
@@ -292,20 +299,23 @@ class TestHandleMovementFailureBadEvents:
         assert micro["direction"] == "north"
 
     def test_ambush_in_safe_location_falls_back_to_trap(self):
-        """Movement roll=1 + bad_roll=3 in safe location → trap fallback, no combat."""
+        """Movement roll=1 + bad_roll=3 in safe location → trap fallback, no combat.
+        
+        Micro event is SKIPPED for fail_bad.
+        """
         st = make_state()
-        # RNG order (called directly in _handle_movement_failure):
-        # [event_roll, damage_roll, bad_roll, extra_roll]
-        # event=1(stone), damage=1, bad=3(fallback trap), extra=5
-        # HP = 10 - 1 - 5 = 4
-        rng = _seq_rng([1, 1, 3, 5])
+        # RNG order (micro event is SKIPPED for fail_bad):
+        # [bad_roll, extra_roll]
+        # bad=3(fallback trap), extra=5
+        # HP = 10 - 5 (trap only) = 5
+        rng = _seq_rng([3, 5])
         result = _handle_movement_failure(
             "north", "fail_bad", st["hidden"], st["visible"], rng,
         )
         assert isinstance(result, ActionResult)
         assert st["hidden"]["current_mode"] == "exploring"
         assert st["hidden"]["combat"] is None
-        assert st["visible"]["hp"] == 4
+        assert st["visible"]["hp"] == 5
         # Trap description should be in events
         assert any("trap" in ev.lower() for ev in result.events)
         # [COMBAT] should NOT be in events
