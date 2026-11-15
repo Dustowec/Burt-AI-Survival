@@ -98,7 +98,7 @@ def create_initial_state(
             "hp_max": STARTING_HP,
             "mp": STARTING_MP,
             "mp_max": STARTING_MP,
-            "eat": True,
+            "eat": False,
             "sleep_counter": 0,
             "date": "1 day",
             "effects": [],

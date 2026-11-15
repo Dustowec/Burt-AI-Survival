@@ -107,7 +107,7 @@ def test_initial_hp_mp():
 def test_initial_hunger_and_sleep():
     state = _default_state()
     v = state["visible"]
-    assert v["eat"] is True
+    assert v["eat"] is False
     assert v["sleep_counter"] == 0
 
 
