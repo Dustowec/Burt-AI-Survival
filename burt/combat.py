@@ -286,6 +286,51 @@ def _burt_flee(
     return replace(burt, hp=_clamp_hp(burt.hp - res.incoming_damage)), "ongoing"
 
 
+def _burt_cast(
+    combat: CombatState,
+    burt: BurtStats,
+    rng: Rng,
+    events_llm: list[str],
+    events_tech: list[str],
+) -> BurtStats:
+    """Burt casts a spell (§9): 1 MP, damage 3-6, no self-penalty.
+
+    All spells are mechanically identical. Target is the first living
+    enemy; there is no target selection in the cast menu.
+    """
+    if not burt.spells_available:
+        raise ValueError("spells not available")
+    if burt.mp < 1:
+        raise ValueError("not enough MP to cast (need 1)")
+
+    alive = _alive(combat)
+    if not alive:
+        raise ValueError("no living targets to cast at")
+
+    target = alive[0]
+    burt = replace(burt, mp=burt.mp - 1)
+
+    roll = rng()
+    result = dice.resolve_attack(roll, 3, 6)
+    events_tech.append(
+        f"burt cast at {target.id}: roll={roll} hit={result.hit} "
+        f"dmg={result.damage} mp={burt.mp}"
+    )
+
+    name = _template(target).name
+    if result.hit:
+        target.hp -= result.damage
+        if target.hp <= 0:
+            _kill(target)
+            events_llm.append(f"Your spell kills {name}.")
+        else:
+            events_llm.append(f"Your spell hits {name}.")
+    else:
+        events_llm.append(f"Your spell misses {name}.")
+
+    return burt
+
+
 # ─── Enemy turn ────────────────────────────────────────────
 
 def _try_cast(
@@ -537,6 +582,10 @@ def resolve_round(
         _burt_block(events_llm, events_tech)
     elif action == "flee":
         burt, outcome = _burt_flee(
+            combat, burt, rng, events_llm, events_tech,
+        )
+    elif action == "cast":
+        burt = _burt_cast(
             combat, burt, rng, events_llm, events_tech,
         )
     else:

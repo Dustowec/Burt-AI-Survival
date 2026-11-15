@@ -179,6 +179,9 @@ def _build_combat_menu(visible: dict, state: dict) -> list[Action]:
     if any_alive:
         actions.append(Action(key="block", label="Block"))
         actions.append(Action(key="flee", label="Flee"))
+        burt = _build_burt_stats(visible, hidden)
+        if burt.spells_available:
+            actions.append(Action(key="cast", label="Cast"))
     return actions
 
 
@@ -545,6 +548,9 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
         target_id = None
     elif action.key == "flee":
         combat_action = "flee"
+        target_id = None
+    elif action.key == "cast":
+        combat_action = "cast"
         target_id = None
     else:
         return error_result(f"unknown combat action: {action.key}")
