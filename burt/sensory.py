@@ -161,20 +161,11 @@ def _capitalize_first(s: str) -> str:
 def _format_wallet(visible: dict) -> str:
     lines = ["[WALLET]"]
     w = visible.get("wallet") or {}
-
-    parts = []
-    if w.get("gold", 0):
-        parts.append(f"{w['gold']} gold")
-    if w.get("silver", 0):
-        parts.append(f"{w['silver']} silver")
-    if w.get("copper", 0):
-        parts.append(f"{w['copper']} copper")
-
-    if not parts:
-        lines.append("empty")
+    coin = w.get("coin", 0)
+    if coin:
+        lines.append(f"{coin} coin")
     else:
-        lines.append(", ".join(parts))
-
+        lines.append("empty")
     return "\n".join(lines)
 
 

@@ -26,7 +26,7 @@ def _state(day=1, step=0, mode="exploring", diary=None,
                 "exits": ["north", "east", "south", "west"],
             },
             "inventory": [],
-            "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {

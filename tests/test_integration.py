@@ -21,7 +21,7 @@ def make_state(mode="exploring"):
             "effects": [],
             "location": {"name": "Crossroads", "exits": ["north", "east", "south", "west"]},
             "inventory": [{"name": "bread", "count": 2}, {"name": "water", "count": 1}],
-            "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {

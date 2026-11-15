@@ -39,7 +39,7 @@ def make_state(mode="exploring", with_meta=True):
                 {"name": "bread", "count": 2},
                 {"name": "water", "count": 1},
             ],
-            "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {

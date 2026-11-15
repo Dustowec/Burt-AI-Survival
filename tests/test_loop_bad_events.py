@@ -36,7 +36,7 @@ def make_state():
                 "exits": ["north", "east", "south", "west"],
             },
             "inventory": [],
-            "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {
@@ -212,7 +212,7 @@ class TestHandleMovementFailureBadEvents:
                 "effects": [],
                 "location": {"name": "Forest", "exits": ["north"]},
                 "inventory": [],
-                "wallet": {"gold": 0, "silver": 5, "copper": 0},
+                "wallet": {"coin": 50},
                 "skills_visible": [],
             },
             "hidden": {
@@ -270,7 +270,7 @@ class TestHandleMovementFailureBadEvents:
                 "effects": [],
                 "location": {"name": "Forest", "exits": ["north"]},
                 "inventory": [],
-                "wallet": {"gold": 0, "silver": 5, "copper": 0},
+                "wallet": {"coin": 50},
                 "skills_visible": [],
             },
             "hidden": {

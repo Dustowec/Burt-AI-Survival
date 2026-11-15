@@ -439,7 +439,7 @@ def resolve_bad_movement_event(
 
 # ---------------------------------------------------------------------
 # Положительные события при движении — §10 (HANDOFF-9.3)
-# 5 → лут: gold = rng() (1..6)
+# 5 → лут: coin = 1 (фиксировано)
 # 6 → blessing: hp_restore = rng() (1..3), mp_restore = rng() (1..2)
 # 1–4 → nothing (на случай прямого вызова; в loop вызывается только 5–6)
 # ---------------------------------------------------------------------
@@ -451,7 +451,7 @@ _POSITIVE_EVENT_TYPES = ("loot", "blessing", "nothing")
 class MovementEventResult:
     event_type: str  # "loot" | "blessing" | "nothing"
     description: str
-    gold: int = 0
+    coin: int = 0
     hp_restore: int = 0
     mp_restore: int = 0
 
@@ -481,11 +481,10 @@ def resolve_movement_event(
         mp_max = 1
 
     if roll == 5:
-        gold = rng()  # 1..6
         return MovementEventResult(
             event_type="loot",
-            description="You found some gold.",
-            gold=gold,
+            description="You found some money.",
+            coin=1,
         )
 
     if roll == 6:
@@ -502,7 +501,7 @@ def resolve_movement_event(
     return MovementEventResult(
         event_type="nothing",
         description="",
-        gold=0,
+        coin=0,
         hp_restore=0,
         mp_restore=0,
     )

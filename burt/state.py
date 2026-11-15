@@ -61,7 +61,7 @@ STARTING_MP: int = 3
 STARTING_HP_PER_LEVEL: int = 2
 STARTING_MP_PER_LEVEL: int = 1
 
-STARTING_WALLET: dict[str, int] = {"gold": 0, "silver": 5, "copper": 0}
+STARTING_WALLET: dict[str, int] = {"coin": 50}
 
 
 # ---------------------------------------------------------------------
@@ -203,11 +203,13 @@ def validate_state(state: dict[str, Any]) -> None:
     wallet = visible.get("wallet")
     if not isinstance(wallet, dict):
         raise ValueError("visible.wallet must be dict")
-    for coin in ("gold", "silver", "copper"):
-        if coin not in wallet:
-            raise ValueError(f"visible.wallet missing {coin}")
-        if not isinstance(wallet[coin], int) or wallet[coin] < 0:
-            raise ValueError(f"visible.wallet.{coin} must be int >= 0")
+    if "coin" not in wallet:
+        raise ValueError("visible.wallet missing coin")
+    if not isinstance(wallet["coin"], int) or wallet["coin"] < 0:
+        raise ValueError("visible.wallet.coin must be int >= 0")
+    extra = set(wallet.keys()) - {"coin"}
+    if extra:
+        raise ValueError(f"visible.wallet has unknown keys: {sorted(extra)}")
 
     # visible: локация без id
     location = visible.get("location")

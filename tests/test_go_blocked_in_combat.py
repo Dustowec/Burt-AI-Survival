@@ -24,7 +24,7 @@ def _state(mode="combat"):
                 "exits": ["north", "east", "south", "west"],
             },
             "inventory": [],
-            "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {

@@ -439,7 +439,7 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
                 mp_max=visible.get("mp_max", 3),
             )
             if ev.event_type == "loot":
-                visible["wallet"]["gold"] += ev.gold
+                visible["wallet"]["coin"] += ev.coin
             elif ev.event_type == "blessing":
                 current_hp = visible.get("hp", 10)
                 new_hp = min(current_hp + ev.hp_restore, visible.get("hp_max", 10))
@@ -616,9 +616,9 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
                         existing["count"] = existing.get("count", 0) + count
                     else:
                         inventory.append({"name": name, "count": count})
-                if drop.coins_copper > 0:
-                    visible["wallet"]["copper"] = (
-                        visible["wallet"].get("copper", 0) + drop.coins_copper
+                if drop.coins > 0:
+                    visible["wallet"]["coin"] = (
+                        visible["wallet"].get("coin", 0) + drop.coins
                     )
                 loot_parts: list[str] = []
                 if drop.items:
@@ -627,8 +627,8 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
                             f"{i['count']}x {i['name']}" for i in drop.items
                         )
                     )
-                if drop.coins_copper > 0:
-                    loot_parts.append(f"{drop.coins_copper} copper")
+                if drop.coins > 0:
+                    loot_parts.append(f"{drop.coins} coin")
                 if loot_parts:
                     events.append("Loot: " + "; ".join(loot_parts))
                 else:

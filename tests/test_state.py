@@ -121,10 +121,10 @@ def test_initial_effects_empty():
     assert state["visible"]["effects"] == []
 
 
-def test_initial_wallet_five_silver():
+def test_initial_wallet_50_coin():
     state = _default_state()
     w = state["visible"]["wallet"]
-    assert w == {"gold": 0, "silver": 5, "copper": 0}
+    assert w == {"coin": 50}
 
 
 def test_initial_inventory_empty():
@@ -387,7 +387,14 @@ def test_validate_location_graph_node_has_all_directions():
 
 def test_validate_wallet_negative():
     state = _default_state()
-    state["visible"]["wallet"]["silver"] = -1
+    state["visible"]["wallet"]["coin"] = -1
+    with pytest.raises(ValueError):
+        validate_state(state)
+
+
+def test_wallet_extra_keys_rejected():
+    state = _default_state()
+    state["visible"]["wallet"] = {"coin": 1, "gold": 1}
     with pytest.raises(ValueError):
         validate_state(state)
 

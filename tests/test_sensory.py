@@ -18,7 +18,7 @@
     Sword — 1шт
 
     [WALLET]
-    3 silver, 5 copper
+    50 coin
 
     [SKILLS]
     Владение дубиной 1/10
@@ -45,7 +45,7 @@ def _visible(**overrides):
             "exits": ["north", "east", "south"],
         },
         "inventory": [],
-        "wallet": {"gold": 0, "silver": 0, "copper": 0},
+        "wallet": {"coin": 0},
         "skills_visible": [],
         "state": "exploring",
     }
@@ -325,39 +325,13 @@ class TestWalletSection:
         idx = out.index("[WALLET]")
         return out[idx:].split("[SKILLS]")[0]
 
-    def test_empty_shows_pusto(self):
-        out = self._out(gold=0, silver=0, copper=0)
+    def test_empty(self):
+        out = self._out(coin=0)
         assert "empty" in self._chunk(out)
 
-    def test_only_copper(self):
-        out = self._out(gold=0, silver=0, copper=5)
-        assert "5 copper" in out
-
-    def test_only_silver(self):
-        out = self._out(gold=0, silver=3, copper=0)
-        assert "3 silver" in out
-
-    def test_only_gold(self):
-        out = self._out(gold=1, silver=0, copper=0)
-        assert "1 gold" in out
-
-    def test_silver_and_copper(self):
-        out = self._out(gold=0, silver=3, copper=5)
-        assert "3 silver, 5 copper" in out
-
-    def test_all_three(self):
-        out = self._out(gold=1, silver=3, copper=5)
-        assert "1 gold, 3 silver, 5 copper" in out
-
-    def test_gold_and_copper_skip_silver(self):
-        out = self._out(gold=2, silver=0, copper=5)
-        assert "2 gold, 5 copper" in out
-        assert "0 silver" not in out
-
-    def test_zero_values_not_shown(self):
-        out = self._out(gold=0, silver=5, copper=0)
-        assert "gold" not in out
-        assert "copper" not in out
+    def test_coin_rendered(self):
+        out = self._out(coin=50)
+        assert "50 coin" in self._chunk(out)
 
 
 # ---------------------------------------------------------------------
@@ -421,7 +395,7 @@ class TestFullReport:
                 {"name": "sword", "count": 1},
                 {"name": "bread", "count": 2},
             ],
-            wallet={"gold": 0, "silver": 3, "copper": 5},
+            wallet={"coin": 35},
             skills_visible=[
                 {"name": "Владение дубиной", "level": 1, "max": 10},
             ],
@@ -442,7 +416,7 @@ class TestFullReport:
             "Bread — 2pcs\n"
             "\n"
             "[WALLET]\n"
-            "3 silver, 5 copper\n"
+            "35 coin\n"
             "\n"
             "[SKILLS]\n"
             "Владение дубиной 1/10"

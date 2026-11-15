@@ -7,7 +7,7 @@
 Формат дропа — LootDrop:
   items         — список {"name": str, "count": int},
                   совместимый с инвентарём state.
-  coins_copper  — медяки, оркестратор кладёт в кошелёк.
+  coins  — монеты (coin), оркестратор кладёт в кошелёк.
 
 Dragon выдаёт весь лут без кубика (§22).
 При бегстве Бурта лута нет — решает оркестратор, не loot.py.
@@ -25,7 +25,7 @@ class LootDrop:
     """Добыча с одного или нескольких убитых врагов."""
 
     items: list[dict] = field(default_factory=list)
-    coins_copper: int = 0
+    coins: int = 0
 
 
 # ─── Валидация ─────────────────────────────────────────────
@@ -58,7 +58,7 @@ def _loot_bandit(roll: int) -> LootDrop:
     if roll <= 2:
         return LootDrop(items=[{"name": "bandage", "count": 1}])
     if roll <= 4:
-        return LootDrop(coins_copper=5)
+        return LootDrop(coins=5)
     return LootDrop(items=[{"name": "low_quality_sword", "count": 1}])
 
 
@@ -113,7 +113,7 @@ def collect_loot(enemy_keys: list[str], rolls: list[int]) -> LootDrop:
     Лут со всех убитых врагов.
 
     enemy_keys и rolls — параллельные списки, длины должны совпадать.
-    items конкатенируются fine врагов, coins_copper суммируется.
+    items конкатенируются fine врагов, coins суммируется.
 
     Вызывается только при полной победе (все враги убиты).
     При бегстве Бурта лута нет — это решает оркестратор.
@@ -128,5 +128,5 @@ def collect_loot(enemy_keys: list[str], rolls: list[int]) -> LootDrop:
     for enemy_key, roll in zip(enemy_keys, rolls):
         drop = roll_loot(enemy_key, roll)
         result.items.extend(drop.items)
-        result.coins_copper += drop.coins_copper
+        result.coins += drop.coins
     return result

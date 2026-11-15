@@ -7,7 +7,7 @@
 Формат дропа — список словарей, совместимый с инвентарём state:
   [{"name": "goblin_dagger", "count": 1}, ...]
 
-Медяки — отдельно, в field coins_copper. Оркестратор кладёт их в кошелёк.
+Монеты — отдельно, в field coins. Оркестратор кладёт их в кошелёк.
 
 ПРЕДПОЛОЖЕНИЯ (требуют подтверждения):
   1. Wolf, boar, bear попадают в общую таблицу «животные».
@@ -42,14 +42,14 @@ class TestGoblinLoot:
     def test_nothing_on_low_rolls(self, roll):
         drop = roll_loot("goblin", roll)
         assert drop.items == []
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
     @pytest.mark.parametrize("roll", [5, 6])
     def test_goblin_dagger_on_high_rolls(self, roll):
         drop = roll_loot("goblin", roll)
         assert item_names(drop) == ["goblin_dagger"]
         assert total_items(drop) == 1
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
 
 # ─── goblin_shaman — §22 ────────────────────────────────────
@@ -59,7 +59,7 @@ class TestShamanLoot:
     def test_nothing_on_low_rolls(self, roll):
         drop = roll_loot("goblin_shaman", roll)
         assert drop.items == []
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
     @pytest.mark.parametrize("roll", [5, 6])
     def test_shaman_staff_on_high_rolls(self, roll):
@@ -76,13 +76,13 @@ class TestBanditLoot:
         drop = roll_loot("bandit", roll)
         assert item_names(drop) == ["bandage"]
         assert total_items(drop) == 1
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
     @pytest.mark.parametrize("roll", [3, 4])
     def test_coins(self, roll):
         drop = roll_loot("bandit", roll)
         assert drop.items == []
-        assert drop.coins_copper == 5
+        assert drop.coins == 5
 
     @pytest.mark.parametrize("roll", [5, 6])
     def test_low_quality_sword(self, roll):
@@ -101,7 +101,7 @@ class TestAnimalLoot:
     def test_nothing_on_low_rolls(self, enemy, roll):
         drop = roll_loot(enemy, roll)
         assert drop.items == []
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
     @pytest.mark.parametrize("enemy", ANIMALS)
     @pytest.mark.parametrize("roll", [4, 5])
@@ -138,7 +138,7 @@ class TestDragonLoot:
 
     def test_no_coins(self):
         drop = roll_loot("dragon", 1)
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
 
 # ─── collect_loot — несколько врагов ───────────────────────
@@ -147,7 +147,7 @@ class TestCollectLoot:
     def test_empty_list_returns_empty_drop(self):
         drop = collect_loot([], [])
         assert drop.items == []
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
     def test_single_kill(self):
         drop = collect_loot(["goblin"], [5])
@@ -162,13 +162,13 @@ class TestCollectLoot:
     def test_coins_accumulate(self):
         # Два бандита, оба с деньгами.
         drop = collect_loot(["bandit", "bandit"], [3, 4])
-        assert drop.coins_copper == 10
+        assert drop.coins == 10
 
     def test_mixed_items_and_coins(self):
         # Goblin с лутом + bandit с деньгами.
         drop = collect_loot(["goblin", "bandit"], [5, 3])
         assert item_names(drop) == ["goblin_dagger"]
-        assert drop.coins_copper == 5
+        assert drop.coins == 5
 
     def test_length_mismatch_raises(self):
         with pytest.raises(ValueError):
@@ -194,7 +194,7 @@ class TestValidation:
         # Неизвестный враг — не ошибка, пустой дроп.
         drop = roll_loot("unicorn", 5)
         assert drop.items == []
-        assert drop.coins_copper == 0
+        assert drop.coins == 0
 
 
 # ─── LootDrop — форма ──────────────────────────────────────

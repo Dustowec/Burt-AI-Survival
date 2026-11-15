@@ -5,7 +5,7 @@ Covered:
 - loop.py go_ handler: positive event applied after successful movement,
   only when on-entry did NOT start combat.
 - Blessing caps hp/mp at max.
-- Loot adds gold to wallet.
+- Loot adds coin to wallet.
 
 All docstrings/comments in English. No Cyrillic literals.
 """
@@ -28,7 +28,7 @@ def make_state():
             "effects": [],
             "location": {"name": "Crossroads", "exits": ["north", "east", "south", "west"]},
             "inventory": [],
-            "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {
@@ -58,14 +58,14 @@ class TestMovementEventsIntegration:
     """Positive events in the go_ handler of loop.py."""
 
     def test_roll_5_produces_loot(self):
-        """Movement roll=5 -> gold added to wallet, event in results."""
+        """Movement roll=5 -> coin added to wallet, event in results."""
         st = make_state()
-        # north->road(safe). rng: [move=5, ec=4, ed=4, et=4, es=4, gold=5]
-        rng = _seq_rng([5, 4, 4, 4, 4, 5])
+        # north->road(safe). rng: [move=5, ec=4, ed=4, et=4, es=4]
+        rng = _seq_rng([5, 4, 4, 4, 4])
         result = execute_action(Action("go_north", "Go"), st, rng=rng)
         assert isinstance(result, ActionResult)
-        assert st["visible"]["wallet"]["gold"] == 5
-        assert any("You found some gold." in ev for ev in result.events)
+        assert st["visible"]["wallet"]["coin"] == 51
+        assert any("You found some money." in ev for ev in result.events)
 
     def test_roll_6_produces_blessing(self):
         """Movement roll=6 -> hp/mp restored (capped), event in results."""
@@ -87,10 +87,10 @@ class TestMovementEventsIntegration:
         rng = _seq_rng([3, 4, 4, 4, 4])
         result = execute_action(Action("go_north", "Go"), st, rng=rng)
         assert isinstance(result, ActionResult)
-        assert st["visible"]["wallet"]["gold"] == 0
+        assert st["visible"]["wallet"]["coin"] == 50
         assert st["visible"]["hp"] == 10
         assert st["visible"]["mp"] == 3
-        assert not any("gold" in ev.lower() for ev in result.events)
+        assert not any("money" in ev.lower() for ev in result.events)
         assert not any("blessing" in ev.lower() for ev in result.events)
 
     def test_roll_5_does_not_apply_if_combat_started(self):
@@ -101,20 +101,20 @@ class TestMovementEventsIntegration:
         result = execute_action(Action("go_south", "Go"), st, rng=rng)
         assert st["hidden"]["current_mode"] == "combat"
         assert st["hidden"]["combat"] is not None
-        assert st["visible"]["wallet"]["gold"] == 0
+        assert st["visible"]["wallet"]["coin"] == 50
         assert any("[COMBAT]" in ev for ev in result.events)
-        assert not any("You found some gold." in ev for ev in result.events)
+        assert not any("You found some money." in ev for ev in result.events)
 
 class TestResolveMovementEvent:
     """Unit tests for dice.resolve_movement_event()."""
 
     def test_roll_5_loot(self):
-        r = resolve_movement_event(5, rng=_seq_rng([4]))
+        r = resolve_movement_event(5)
         assert r.event_type == "loot"
-        assert r.gold == 4
+        assert r.coin == 1
         assert r.hp_restore == 0
         assert r.mp_restore == 0
-        assert r.description == "You found some gold."
+        assert r.description == "You found some money."
 
     def test_roll_6_blessing_caps(self):
         """Blessing restore values capped by hp_max / mp_max."""
@@ -135,7 +135,7 @@ class TestResolveMovementEvent:
         for roll in (1, 2, 3, 4):
             r = resolve_movement_event(roll)
             assert r.event_type == "nothing"
-            assert r.gold == 0
+            assert r.coin == 0
             assert r.hp_restore == 0
             assert r.mp_restore == 0
             assert r.description == ""
@@ -150,4 +150,4 @@ class TestResolveMovementEvent:
         """When rng=None, defaults to roll_d6 (just checks no crash)."""
         r = resolve_movement_event(5)
         assert r.event_type == "loot"
-        assert 1 <= r.gold <= 6
+        assert r.coin == 1

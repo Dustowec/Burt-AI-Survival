@@ -26,7 +26,7 @@ def make_state(mode="exploring"):
                 {"name": "bread", "count": 2},
                 {"name": "water", "count": 1},
             ],
-            "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {
@@ -80,7 +80,7 @@ def test_loot_collected_on_victory():
     st, enemy_id, cs_dead = _setup_victory_state(["wolf"])
     fake = _make_victory_result(cs_dead)
     fake_drop = LootDrop(
-        items=[{"name": "wolf_pelt", "count": 1}], coins_copper=7,
+        items=[{"name": "wolf_pelt", "count": 1}], coins=7,
     )
 
     with patch("burt.loop.combat.resolve_round", return_value=fake), \
@@ -94,7 +94,7 @@ def test_loot_collected_on_victory():
     assert mock_collect.called
     names = [i["name"] for i in st["visible"]["inventory"]]
     assert "wolf_pelt" in names
-    assert st["visible"]["wallet"]["copper"] == 7
+    assert st["visible"]["wallet"]["coin"] == 57
     assert any("Loot:" in e for e in result.events)
 
 
@@ -123,7 +123,7 @@ def test_loot_from_multiple_dead_enemies():
             {"name": "pelt", "count": 1},
             {"name": "goblin_dagger", "count": 1},
         ],
-        coins_copper=0,
+        coins=0,
     )
 
     with patch("burt.loop.combat.resolve_round", return_value=fake), \

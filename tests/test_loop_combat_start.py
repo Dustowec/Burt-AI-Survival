@@ -38,7 +38,7 @@ def make_state():
                 "name": "Crossroads",
                 "exits": ["north", "east", "south", "west"],
             },
-            "inventory": [], "wallet": {"gold": 0, "silver": 5, "copper": 0},
+            "inventory": [], "wallet": {"coin": 50},
             "skills_visible": [],
         },
         "hidden": {

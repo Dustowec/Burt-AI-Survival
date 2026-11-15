@@ -13,9 +13,8 @@
     покупка Буртом:  floor(base * mod)
     продажа Буртом:  floor(floor(base * 0.5) * mod)
 
-Все цены — в МЕДЯКАХ:
-    1 silver = 10 copper
-    1 gold = 100 copper
+Все цены — в монетах (coin):
+    1 coin = 1 бывший медяк; старт 5 silver = 50 coin; старый 1 gold = 100 coin
 Округление ВНИЗ на каждом шаге (math.floor).
 
 Правило «раз на сделку» = весь диалог:  модификатор роли кидается
@@ -26,7 +25,7 @@
 Это фильтр на уровне npc/loop. trade.py ничего не знает о вере.
 
 Округление и особенности:
-    bandage (base=1) при продаже уходит за 0 copper — следствие
+    bandage (base=1) при продаже уходит за 0 coin — следствие
     формулы floor(floor(1 * 0.5) * mod) = floor(0 * mod) = 0.
     Никаких минимумов не вводим: формула есть формула.
 """
@@ -46,17 +45,17 @@ BASE_PRICES: dict[str, int] = {
     "fish": 2,
     "dried_fish": 3,
     "waterskin": 2,               # малая, 2/2
-    "large_waterskin": 10,      # 5/5, 1 silver
+    "large_waterskin": 10,      # 5/5, 10 coin
     "bedroll": 5,
     "tavern_room": 5,           # одноразовый товар: ночь
 
     # оружие
-    "club": 10,                     # 1 silver
-    "spear": 20,                      # 2 silver
-    "low_quality_sword": 10,       # 1 silver
-    "ordinary_sword": 30,                # 3 silver
-    "high_quality_sword": 60,      # 6 silver
-    "staff": 100,                     # 1 gold
+    "club": 10,                     # 10 coin
+    "spear": 20,                      # 20 coin
+    "low_quality_sword": 10,       # 10 coin
+    "ordinary_sword": 30,                # 30 coin
+    "high_quality_sword": 60,      # 60 coin
+    "staff": 100,                     # 100 coin
 }
 
 
@@ -69,10 +68,10 @@ LOOT_PRICES: dict[str, int] = {
     "goblin_staff": 6,
     "bandage": 1,
     "fangs": 3,                        # за пару (2 pcs.)
-    "pelt": 10,                       # 1 silver
-    "dragon_scale": 1000,             # 10 gold
-    "dragon_fangs": 500,             # 5 gold (за пару)
-    "dragon_bone": 1000,             # 10 gold
+    "pelt": 10,                       # 10 coin
+    "dragon_scale": 1000,             # 1000 coin
+    "dragon_fangs": 500,             # 500 coin (за пару)
+    "dragon_bone": 1000,             # 1000 coin
 }
 
 
