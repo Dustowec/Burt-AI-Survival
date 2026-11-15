@@ -270,6 +270,13 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
     visible = state.setdefault("visible", {})
     mode = hidden.get("current_mode", "exploring")
 
+    # KNOWN ISSUES #5: block movement in combat (defensive).
+    # go_back / go_forward / go_north / go_east / go_south / go_west all
+    # start with "go_". Combat menu never offers them, so this only fires
+    # on hallucinated input and must not move Burt or touch last_action.
+    if mode == "combat" and action.key.startswith("go_"):
+        return error_result(f"cannot {action.key} in combat")
+
     # Reset "scared" counter on any non-osmotret action.
     if action.key != "osmotret":
         hidden["last_action"] = action.key
