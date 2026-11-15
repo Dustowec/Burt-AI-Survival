@@ -38,6 +38,7 @@ _DIRECTIONS_RU = {
 _EFFECTS_RU = {
     "blessed": "blessed",
     "cursed": "cursed",
+    "poisoned": "poisoned",
 }
 
 

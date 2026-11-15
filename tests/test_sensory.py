@@ -379,6 +379,11 @@ class TestSkillsSection:
 # ---------------------------------------------------------------------
 
 class TestFullReport:
+    def test_effects_poisoned_rendered(self):
+        v = _visible(effects=["poisoned"])
+        out = sensory.format_sensory_report(v)
+        assert "Effects: poisoned" in out
+
     def test_example_from_spec(self):
         visible = _visible(
             hp=12, hp_max=20,

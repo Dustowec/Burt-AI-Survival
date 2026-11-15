@@ -121,6 +121,11 @@ def test_initial_effects_empty():
     assert state["visible"]["effects"] == []
 
 
+def test_initial_dot_effects_empty():
+    state = _default_state()
+    assert state["hidden"]["dot_effects"] == []
+
+
 def test_initial_wallet_50_coin():
     state = _default_state()
     w = state["visible"]["wallet"]

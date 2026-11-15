@@ -120,6 +120,7 @@ def create_initial_state(
             "hunger_death_at": list(HUNGER_DEATH_AT),
             "sleep_forced_at": SLEEP_FORCED_AT,
             "effects_detail": [],
+            "dot_effects": [],
             "reputation": {role: 0 for role in ROLE_NAMES},
             "skills_raw": [],
             "quests_raw": [],

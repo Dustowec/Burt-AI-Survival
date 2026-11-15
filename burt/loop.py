@@ -24,6 +24,8 @@ from burt import dice
 from burt import spawn
 from burt import combat
 from burt import loot
+from burt import search as search_mod
+from burt import items
 from burt.combat import CombatState, BurtStats
 from burt.bestiary import ENEMIES
 from burt.dice import (
@@ -145,7 +147,7 @@ def build_menu(visible: dict, state: dict) -> list[Action]:
     has_water = False
     for item in inventory:
         name = item.get("name", "").lower()
-        if name in ("bread", "food", "dried_fish", "fish"):
+        if items.is_food(name):
             has_food = True
         if name in ("water", "waterskin", "large_waterskin"):
             has_water = True
@@ -274,11 +276,11 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
     # go_back / go_forward / go_north / go_east / go_south / go_west all
     # start with "go_". Combat menu never offers them, so this only fires
     # on hallucinated input and must not move Burt or touch last_action.
-    if mode == "combat" and action.key.startswith("go_"):
+    if mode == "combat" and (action.key.startswith("go_") or action.key == "search"):
         return error_result(f"cannot {action.key} in combat")
 
-    # Reset "scared" counter on any non-osmotret action.
-    if action.key != "osmotret":
+    # Reset "scared" counter on any non-osmotret/search action.
+    if action.key not in ("osmotret", "search"):
         hidden["last_action"] = action.key
         hidden["same_action_count"] = 1
 
@@ -462,13 +464,79 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
         )
 
     if action.key == "search":
+        loc_type = _current_location_type(hidden)
+        if loc_type not in search_mod.SEARCH_AVAILABLE:
+            return error_result(f"cannot search in {loc_type or 'unknown'}")
+
+        # Reset counter if previous action was not search
+        if hidden.get("last_action") != "search":
+            hidden["same_action_count"] = 0
+
+        # Check penalty BEFORE increment (count reflects previous calls)
+        should_penalize, penalty_msg = search_mod.check_search_penalty(state)
+        if should_penalize:
+            visible["hp"] = max(0, visible.get("hp", 10) - 1)
+            hidden["hp_raw"] = visible["hp"]
+            events = [penalty_msg, "You find nothing."]
+            if visible["hp"] <= 0:
+                return ActionResult(events=events, game_over=True)
+            events.append(sensory.format_sensory_report(visible))
+            return ActionResult(events=events)
+
+        # Increment and maybe warn
+        count = search_mod.increment_search_counter(state)
+        events: list[str] = []
+        if count == 2:
+            events.append(search_mod.WARN_TEXT)
+
         hidden["step"] = hidden.get("step", 0) + 1
         roll = rng()
-        search_result = dice.resolve_search(roll)
-        return ActionResult(
-            events=[search_result.result, sensory.format_sensory_report(visible)],
-            search_result=search_result.result,
+        category, loot_items, coin_gain = search_mod.resolve_search(
+            roll, loc_type, rng,
         )
+
+        if category.result == "fail_penalty":
+            search_mod.apply_dot(state)
+            search_mod.sync_poisoned_effect(state)
+            events.append("You cut yourself while searching. -1 HP.")
+            events.append("You find nothing.")
+            if visible["hp"] <= 0:
+                return ActionResult(events=events, game_over=True,
+                                    search_result="fail_penalty")
+            events.append(sensory.format_sensory_report(visible))
+            return ActionResult(events=events, search_result="fail_penalty")
+
+        # Apply loot (aggregate counts)
+        inventory = visible.setdefault("inventory", [])
+        aggregated: dict[str, int] = {}
+        for name in loot_items:
+            aggregated[name] = aggregated.get(name, 0) + 1
+        for name, cnt in aggregated.items():
+            found = False
+            for inv in inventory:
+                if inv.get("name") == name:
+                    inv["count"] = inv.get("count", 0) + cnt
+                    found = True
+                    break
+            if not found:
+                inventory.append({"name": name, "count": cnt})
+
+        if coin_gain > 0:
+            visible["wallet"]["coin"] = (
+                visible["wallet"].get("coin", 0) + coin_gain
+            )
+
+        # Build message
+        if aggregated or coin_gain > 0:
+            parts = [f"{cnt}x {name}" for name, cnt in aggregated.items()]
+            if coin_gain > 0:
+                parts.append(f"{coin_gain} coin")
+            events.append("Found: " + "; ".join(parts) + ".")
+        else:
+            events.append("You find nothing.")
+
+        events.append(sensory.format_sensory_report(visible))
+        return ActionResult(events=events, search_result=category.result)
 
     if action.key in ("sleep", "write_diary_and_go_sleep"):
         hp_max = visible.get("hp_max", 10)
@@ -504,7 +572,7 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
         inventory = visible.get("inventory", [])
         for i, item in enumerate(inventory):
             name = item.get("name", "").lower()
-            if name in ("bread", "food", "dried_fish", "fish"):
+            if items.is_food(name):
                 item["count"] -= 1
                 if item["count"] <= 0:
                     inventory.pop(i)
@@ -731,6 +799,13 @@ def _maybe_start_combat_on_enter(
         if enemies:
             return _start_combat(enemies, "enemy", hidden, visible)
     return None
+
+
+def _current_location_type(hidden: dict) -> str:
+    graph = hidden.get("location_graph", {})
+    node_id = hidden.get("current_node_id", "start")
+    node = graph.get(node_id, {})
+    return node.get("type", "")
 
 
 def _handle_movement_failure(

@@ -33,6 +33,7 @@ from burt import (
     sleep as sleep_mod,
     state as state_mod,
     state_io,
+    search as search_mod,
 )
 
 
@@ -84,6 +85,7 @@ def _ensure_runtime_fields(state: dict) -> None:
     hidden.setdefault("diary_written_today", False)
     hidden.setdefault("diary_skipped_today", False)
     hidden.setdefault("injected_day", 0)
+    hidden.setdefault("dot_effects", [])
 
 
 # ---------------------------------------------------------------------
@@ -227,8 +229,25 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
     hidden = state["hidden"]
     day_before = hidden.get("day", 1)
 
+    # ── 0. DoT tick at start of turn ─────────────────────────
+    hp_lost = 0
+    if not dry_run:
+        hp_lost, dot_game_over = search_mod.tick_dot(state)
+        search_mod.sync_poisoned_effect(state)
+        if dot_game_over:
+            logger.warning(
+                "Burt died | cause=diarrhea | step=%d day=%d hp=0 | location=%s",
+                hidden.get("step", 0),
+                hidden.get("day", 1),
+                visible.get("location", {}).get("name", "Unknown"),
+            )
+            await _write_epitaph(state, "diarrhea")
+            return True, history
+
     # ── 1. Sensory report ─────────────────────────────────────
     report = sensory.format_sensory_report(visible)
+    if hp_lost > 0:
+        report = f"You take {hp_lost} damage from poison.\n\n" + report
 
     # ── 1b. Diary / punishment injection on new day ──────────
     if hidden.get("injected_day", 0) != hidden.get("day", 1):
