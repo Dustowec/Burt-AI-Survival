@@ -103,8 +103,7 @@ def _hp_qualitative(hp: int, hp_max: int) -> str:
 
 
 def _format_hunger_sleep(visible: dict) -> str:
-    hunger = "full" if visible["eat"] else "hungry"
-    return f"Hunger: {hunger}"
+    return "Fed: yes" if visible["eat"] else "Fed: no (hungry)"
 
 
 def _format_effects(effects: list) -> str | None:

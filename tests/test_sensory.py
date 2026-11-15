@@ -6,7 +6,7 @@
 Формат (§25):
     [STATE]
     HP: 12/20 | MP: 3/5
-    Hunger: full
+    Fed: yes
     Date: 7 day
     Effects: blessed
 
@@ -109,12 +109,12 @@ class TestStateSection:
 
     def test_hunger_full(self):
         out = sensory.format_sensory_report(_visible(eat=True))
-        assert "Hunger: full" in out
+        assert "Fed: yes" in out
         assert "Sleep:" not in out
 
     def test_hunger_hungry(self):
         out = sensory.format_sensory_report(_visible(eat=False))
-        assert "Hunger: hungry" in out
+        assert "Fed: no (hungry)" in out
         assert "Sleep:" not in out
 
     def test_no_sleep_line_in_state(self):
@@ -429,7 +429,7 @@ class TestFullReport:
         expected = (
             "[STATE]\n"
             "HP: 12/20 | MP: 3/5\n"
-            "Hunger: full\n"
+            "Fed: yes\n"
             "Date: 7 day\n"
             "Effects: blessed\n"
             "\n"
