@@ -134,6 +134,11 @@ def build_menu(visible: dict, state: dict) -> list[Action]:
     hp_max = visible.get("hp_max", 10)
     if step >= 19 or (hp_max > 0 and hp * 100 < hp_max * 25):
         actions.append(Action(key="sleep", label="Sleep"))
+        if step >= 19:
+            actions.append(Action(
+                key="write_diary_and_go_sleep",
+                label="Write diary and go to sleep",
+            ))
 
     inventory = visible.get("inventory", [])
     has_food = False
@@ -458,7 +463,7 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
             search_result=search_result.result,
         )
 
-    if action.key == "sleep":
+    if action.key in ("sleep", "write_diary_and_go_sleep"):
         hp_max = visible.get("hp_max", 10)
         mp_max = visible.get("mp_max", 3)
         new_hp, new_mp, new_effects = sleep_mod.apply_sleep(hp_max, mp_max)
@@ -473,6 +478,11 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
         hidden["day"] = hidden.get("day", 1) + 1
         hidden["step"] = 0
         visible["date"] = f"{hidden['day']} day(s)"
+        hidden["day_log"] = []
+        if not hidden.get("diary_written_today", False):
+            hidden["diary"] = None
+            hidden["diary_skipped_today"] = True
+        hidden["diary_written_today"] = False
         return ActionResult(events=["You sleep.", sensory.format_sensory_report(visible)])
 
     if action.key == "eat_food":

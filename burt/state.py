@@ -138,6 +138,11 @@ def create_initial_state(
             "has_staff": False,
             "teacher_found": False,
             "trained_by": [],
+            "diary": None,
+            "day_log": [],
+            "diary_written_today": False,
+            "diary_skipped_today": False,
+            "injected_day": 0,
         },
     }
 

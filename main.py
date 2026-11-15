@@ -79,6 +79,11 @@ def _ensure_runtime_fields(state: dict) -> None:
     hidden.setdefault("current_mode", "exploring")
     hidden.setdefault("last_action", None)
     hidden.setdefault("same_action_count", 0)
+    hidden.setdefault("diary", None)
+    hidden.setdefault("day_log", [])
+    hidden.setdefault("diary_written_today", False)
+    hidden.setdefault("diary_skipped_today", False)
+    hidden.setdefault("injected_day", 0)
 
 
 # ---------------------------------------------------------------------
@@ -140,6 +145,62 @@ def _log_death(state: dict, action: loop.Action) -> None:
     )
 
 
+def _format_day_log(day_log: list[dict]) -> str:
+    """Format the day's accumulated log for the diary prompt."""
+    if not day_log:
+        return "(no events)"
+    parts: list[str] = []
+    for entry in day_log:
+        parts.append(
+            f"Step {entry.get('step', 0)}, {entry.get('location', '?')}:\n"
+            f"Burt: {entry.get('llm_message', '')}\n"
+            f"Action: {entry.get('action', '?')}"
+        )
+    return "\n\n".join(parts)
+
+
+def _store_epitaph(state: dict, cause: str, text: str) -> None:
+    """Store the final epitaph in meta['memory']."""
+    state.setdefault("meta", {})["memory"] = text
+    state["meta"]["memory_cause"] = cause
+    logger.info("epitaph cause=%s: %s", cause, text)
+
+
+async def _write_diary(state: dict, day_log: list[dict]) -> None:
+    """Call LLM with DIARY_PROMPT, store result in hidden['diary']."""
+    hidden = state["hidden"]
+    day = hidden.get("day", 1)
+    previous = hidden.get("diary")
+    prev_text = previous if previous else "(no previous entry)"
+    body = _format_day_log(day_log)
+    user_msg = (
+        f"Day {day}.\n\n"
+        f"Your previous entry: {prev_text}\n\n"
+        f"Today's events:\n{body}\n\n"
+        f"Write your diary entry for today."
+    )
+    answer, _ = await llm_client.call_llm(
+        prompts.DIARY_PROMPT, user_msg, [],
+    )
+    hidden["diary"] = answer
+    hidden["diary_written_today"] = True
+    logger.info("diary day=%d: %s", day, answer)
+
+
+async def _write_epitaph(state: dict, cause: str) -> None:
+    """Call LLM with SPIRIT_PROMPT, store epitaph in meta['memory']."""
+    hidden = state["hidden"]
+    days = hidden.get("day", 1)
+    diary = hidden.get("diary")
+    user_msg = f"You lived {days} days. You died from {cause}."
+    if diary:
+        user_msg += f"\n\nYour last diary entry:\n{diary}"
+    answer, _ = await llm_client.call_llm(
+        prompts.SPIRIT_PROMPT, user_msg, [],
+    )
+    _store_epitaph(state, cause, answer)
+
+
 def _log_result_events(result: loop.ActionResult) -> None:
     """П.3: log all result events at INFO (noisy but explicit)."""
     for ev in result.events:
@@ -164,9 +225,22 @@ def _log_inject(step: int, day: int, mode: str, menu: list[loop.Action], user_ms
 async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tuple[bool, list[dict]]:
     visible = state["visible"]
     hidden = state["hidden"]
+    day_before = hidden.get("day", 1)
 
     # ── 1. Sensory report ─────────────────────────────────────
     report = sensory.format_sensory_report(visible)
+
+    # ── 1b. Diary / punishment injection on new day ──────────
+    if hidden.get("injected_day", 0) != hidden.get("day", 1):
+        if hidden.get("diary_skipped_today", False):
+            report += (
+                "\n\nYou are punished by the gods of oblivion "
+                "for irresponsibility."
+            )
+            hidden["diary_skipped_today"] = False
+        elif hidden.get("diary"):
+            report += f"\n\nYour last diary entry:\n{hidden['diary']}"
+        hidden["injected_day"] = hidden.get("day", 1)
 
     # ── 2. Hunger / sleep injection ──────────────────────────
     step = hidden.get("step", 0)
@@ -212,6 +286,17 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
     # ── 6. Parse and execute ─────────────────────────────────
     action = loop.parse_choice(answer, menu)
     logger.info("Action: %s (%s)", action.key, action.label)
+
+    hidden.setdefault("day_log", []).append({
+        "step": hidden.get("step", 0),
+        "location": visible.get("location", {}).get("name", "?"),
+        "llm_message": answer,
+        "action": action.key,
+    })
+
+    if action.key == "write_diary_and_go_sleep":
+        await _write_diary(state, hidden["day_log"])
+
     result = loop.execute_action(action, state, rng=rng)
 
     _log_result_events(result)
@@ -223,6 +308,7 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
     # ── 8. Game over? ────────────────────────────────────────
     if result.game_over:
         _log_death(state, action)
+        await _write_epitaph(state, _determine_death_cause(state, action))
         return True, history
 
     # ── 9. Post-turn: hunger death check ─────────────────────
@@ -235,6 +321,7 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
             visible.get("hp", 0),
             visible.get("location", {}).get("name", "Unknown")
         )
+        await _write_epitaph(state, "hunger")
         return True, history
     if death_outcome == "resurrected":
         visible["hp"] = 2
@@ -244,7 +331,7 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
 
     # ── 10. Forced sleep on step 20 ──────────────────────────
     step_now = hidden.get("step", 0)
-    chose_sleep = (action.key == "sleep")
+    chose_sleep = action.key in ("sleep", "write_diary_and_go_sleep")
     if sleep_mod.is_forced_sleep(step_now, chose_sleep):
         if hidden.get("current_mode") != "combat":
             logger.info("Forced sleep (step 20)")
@@ -256,7 +343,12 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
     quests.expire_blockades(state)
     quests.expire_deceit_penalties(state)
 
-    # ── 12. Sync meta and save ───────────────────────────────
+    # ── 12. Context reset on new day ─────────────────────────
+    day_after = hidden.get("day", 1)
+    if day_after > day_before:
+        history = []
+
+    # ── 13. Sync meta and save ───────────────────────────────
     _sync_meta_from_hidden(state)
     return False, history
 
@@ -301,6 +393,11 @@ def _do_sleep(state: dict) -> None:
     hidden["day"] = hidden.get("day", 1) + 1
     hidden["step"] = 0
     visible["date"] = f"{hidden['day']} day"
+    hidden["day_log"] = []
+    if not hidden.get("diary_written_today", False):
+        hidden["diary"] = None
+        hidden["diary_skipped_today"] = True
+    hidden["diary_written_today"] = False
     logger.info("Slept. day=%d step=0", hidden["day"])
 
 
