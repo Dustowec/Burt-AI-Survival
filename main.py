@@ -115,12 +115,18 @@ def _ensure_runtime_fields(state: dict) -> None:
 # New life
 # ---------------------------------------------------------------------
 
-def make_new_state(life: int = 1) -> dict:
+def make_new_state(
+    life: int = 1,
+    memory: str | None = None,
+    memory_cause: str | None = None,
+) -> dict:
     return state_mod.create_initial_state(
         life=life,
         session_uuid=str(uuid.uuid4()),
         config_hash=CONFIG_HASH,
         session_started=datetime.now(timezone.utc).isoformat(),
+        memory=memory,
+        memory_cause=memory_cause,
     )
 
 
@@ -298,6 +304,11 @@ async def run_turn(
         elif hidden.get("diary"):
             report += f"\n\nYour last diary entry:\n{hidden['diary']}"
         hidden["injected_day"] = hidden.get("day", 1)
+
+    # -- 1c. Memory injection from previous lives -----------------
+    meta = state.get("meta", {})
+    if meta.get("memory") and meta.get("life", 1) > 1:
+        report += f"\n\nYou remember your past life:\n{meta['memory']}"
 
     # -- 2. Hunger / sleep injection ------------------------------
     if hunger.should_inject_hunger(step, visible.get("eat", False)):
@@ -562,8 +573,23 @@ async def game_loop(
             logger.exception("Failed to save state")
 
         if game_over:
-            logger.info("Game over. Rerun with --new to start a new life.")
-            break
+            # Auto-restart: new life with incremented counter and transferred memory
+            old_memory = state["meta"].get("memory")
+            old_memory_cause = state["meta"].get("memory_cause")
+            old_life = state["meta"]["life"]
+            new_life = old_life + 1
+            state = make_new_state(
+                life=new_life,
+                memory=old_memory,
+                memory_cause=old_memory_cause,
+            )
+            _sync_hidden_from_meta(state)
+            _ensure_runtime_fields(state)
+            logger.info(
+                "Game over (life %d) → new life %d started (memory=%s)",
+                old_life, new_life, "yes" if old_memory else "no",
+            )
+            continue
 
     logger.info("Loop finished after %d turns", step_count)
 # CLI

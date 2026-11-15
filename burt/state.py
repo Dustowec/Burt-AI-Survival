@@ -73,10 +73,13 @@ def create_initial_state(
     session_uuid: str,
     config_hash: str,
     session_started: str,
+    memory: str | None = None,
+    memory_cause: str | None = None,
 ) -> dict[str, Any]:
     """Стартовое состояние новой жизни.
 
     life, session_uuid, config_hash, session_started — обязательны (§30).
+    memory / memory_cause — optional, переносятся из предыдущей жизни.
     Возвращает полностью независимую структуру.
     """
     if not isinstance(life, int) or life < 1:
@@ -84,15 +87,21 @@ def create_initial_state(
 
     starting_graph = world.create_start_graph()
 
+    meta: dict[str, Any] = {
+        "life": life,
+        "day": 1,
+        "step": 0,
+        "session_uuid": session_uuid,
+        "session_started": session_started,
+        "config_hash": config_hash,
+    }
+    if memory is not None:
+        meta["memory"] = memory
+    if memory_cause is not None:
+        meta["memory_cause"] = memory_cause
+
     return {
-        "meta": {
-            "life": life,
-            "day": 1,
-            "step": 0,
-            "session_uuid": session_uuid,
-            "session_started": session_started,
-            "config_hash": config_hash,
-        },
+        "meta": meta,
         "visible": {
             "hp": STARTING_HP,
             "hp_max": STARTING_HP,

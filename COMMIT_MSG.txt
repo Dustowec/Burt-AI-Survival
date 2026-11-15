@@ -1,9 +1,16 @@
-feat(dice): flat micro-location damage per spec (stone=1-2, tree=2-3, lightning=3-4, god_wrath=1*lvl)
+feat(game): life counter + auto-restart + memory transfer (P2)
 
-MicroEventResult now carries damage_min/damage_max instead of dice_count.
-calculate_micro_damage picks from the flat range using rng() % range + min.
-This fixes the biggest balance bug — movement was unnecessarily lethal
-(3d6 lightning could deal up to 18 HP damage).
+After game_over, game_loop now auto-creates a new life with:
+- life counter incremented (meta["life"] + 1)
+- memory/memory_cause transferred from previous life
+- inventory, wallet, skills, quests reset to defaults
+- fresh location graph (starts at Crossroads)
 
-Updated tests in test_loop.py, test_loop_bad_events.py, test_loop_combat_start.py
-to reflect the new damage values.
+make_new_state and create_initial_state accept optional memory/memory_cause
+parameters. Memory is injected into sensory report on life 2+:
+"You remember your past life: {meta['memory']}"
+
+This unblocks MEMORY_SUMMARY_PROMPT (requires 10+ lives).
+
+New tests: tests/test_life_memory.py (20 tests).
+All existing tests untouched (1592 passed, 0 failed).
