@@ -1,11 +1,9 @@
-feat(logging): JSON turn-by-turn logger with day-based directory rotation
+feat(dice): flat micro-location damage per spec (stone=1-2, tree=2-3, lightning=3-4, god_wrath=1*lvl)
 
-Add burt/game_logger.py for structured JSON logging of every game turn.
-Each turn is saved as LOGS/day_NNN/turn_NNNNNN.json containing full
-start/end state snapshots, sensory report, LLM prompt/response, action,
-result events, and HP changes.
+MicroEventResult now carries damage_min/damage_max instead of dice_count.
+calculate_micro_damage picks from the flat range using rng() % range + min.
+This fixes the biggest balance bug — movement was unnecessarily lethal
+(3d6 lightning could deal up to 18 HP damage).
 
-Special events (deaths, resurrections) are logged via log_special_event.
-Main loop passes GameLogger instance to run_turn and game_loop.
-
-Updated tests to use TurnResult dataclass instead of tuple unpacking.
+Updated tests in test_loop.py, test_loop_bad_events.py, test_loop_combat_start.py
+to reflect the new damage values.

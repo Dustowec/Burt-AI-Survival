@@ -182,15 +182,15 @@ class TestHandleMovementFailureBadEvents:
         try:
             # RNG order (called directly in _handle_movement_failure):
             # [event_roll, damage_roll] — NO bad_roll call for fail
-            # event=1(stone), damage=1
+            # event=1(stone, flat 1-2), damage=1%2+1=2
             rng = _seq_rng([1, 1])
             result = _handle_movement_failure(
                 "north", "fail", st["hidden"], st["visible"], rng,
             )
             assert isinstance(result, ActionResult)
-            # HP = 10 - 1 = 9
-            assert st["visible"]["hp"] == 9
-            assert st["hidden"]["hp_raw"] == 9
+            # stone damage = 2, HP = 10 - 2 = 8
+            assert st["visible"]["hp"] == 8
+            assert st["hidden"]["hp_raw"] == 8
             # Monkeypatch should NOT have been called (regression guard)
             assert called["n"] == 0, (
                 "resolve_bad_movement_event was called for fail (roll=2)"

@@ -485,26 +485,32 @@ class TestMicroLocation:
         damage = calculate_micro_damage(event, lambda: 0)  # dice_count=0
         assert damage == 5
 
-    def test_stone_damage_1d6(self):
+    def test_stone_damage_flat(self):
         from burt.dice import resolve_micro_event, calculate_micro_damage
         event = resolve_micro_event(1, level=1)
         assert event.event_type == "stone"
-        assert event.dice_count == 1
+        assert event.damage_min == 1
+        assert event.damage_max == 2
+        # flat 1-2: rng=4 → 4%2+1 = 1
         damage = calculate_micro_damage(event, lambda: 4)
-        assert damage == 4
+        assert damage == 1
 
-    def test_tree_damage_2d6(self):
+    def test_tree_damage_flat(self):
         from burt.dice import resolve_micro_event, calculate_micro_damage
         event = resolve_micro_event(2, level=1)
         assert event.event_type == "tree"
-        assert event.dice_count == 2
+        assert event.damage_min == 2
+        assert event.damage_max == 3
+        # flat 2-3: rng=3 → 3%2+2 = 3
         damage = calculate_micro_damage(event, lambda: 3)
-        assert damage == 6  # 3+3
+        assert damage == 3
 
-    def test_lightning_damage_3d6(self):
+    def test_lightning_damage_flat(self):
         from burt.dice import resolve_micro_event, calculate_micro_damage
         event = resolve_micro_event(3, level=1)
         assert event.event_type == "lightning"
-        assert event.dice_count == 3
+        assert event.damage_min == 3
+        assert event.damage_max == 4
+        # flat 3-4: rng=2 → 2%2+3 = 3
         damage = calculate_micro_damage(event, lambda: 2)
-        assert damage == 6  # 2+2+2
+        assert damage == 3

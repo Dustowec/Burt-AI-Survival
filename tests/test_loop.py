@@ -434,35 +434,37 @@ class TestOsmotretPunishment:
             
             # rng side_effect:
             # 1. move_roll (2 -> fail)
-            # 2. event_roll (6 -> lightning)
-            # 3+. damage_roll (6 -> max damage)
-            rolls = [2, 6, 6, 6, 6, 6, 6, 6, 6]
+            # 2. event_roll (6 -> stone, flat 1-2)
+            # 3. damage_roll (6 -> 6%2+1 = 1)
+            rolls = [2, 6, 6]
             def rng():
-                return rolls.pop(0) if rolls else 6
+                return rolls.pop(0) if rolls else 1
 
             result = execute_action(Action("go_north", "Go"), st, rng=rng)
             
+            # stone damage = 1, HP = 0 -> game_over
             assert st["visible"]["hp"] == 0
-            assert result.game_over is True, "Должен быть game_over, если HP упало до 0 от молнии"
+            assert result.game_over is True, "Должен быть game_over, если HP упало до 0"
 
         def test_movement_fail_lightning_sets_micro_location_before_death(self):
             st = make_state()
             st["visible"]["hp"] = 10
             st["hidden"]["hp_raw"] = 10
             
-            # rng: move_roll=2 (fail), event_roll=3 (lightning), damage_roll=6 (max 3d6)
-            rolls = [2, 3, 6, 6, 6]
+            # rng: move_roll=2 (fail), event_roll=3 (lightning, flat 3-4), damage_roll=6
+            # lightning damage = 6%2+3 = 3
+            rolls = [2, 3, 6]
             def rng():
-                return rolls.pop(0) if rolls else 6
+                return rolls.pop(0) if rolls else 3
 
             result = execute_action(Action("go_north", "Go"), st, rng=rng)
             
-            assert st["visible"]["hp"] == 0
-            assert result.game_over is True
+            assert st["visible"]["hp"] == 7  # 10 - 3
+            assert result.game_over is False
             # ГЛАВНОЕ: micro_location должен быть записан, чтобы main.py увидел причину
             assert st["hidden"]["micro_location"]["active"] is True
             assert st["hidden"]["micro_location"]["event_type"] == "lightning"
-            assert st["hidden"]["micro_location"]["damage"] > 0
+            assert st["hidden"]["micro_location"]["damage"] == 3
 
 
 # ─── Save/Load Integrity (TZ_for_GigaCode.md — пункт 2) ─────────
@@ -730,16 +732,16 @@ class TestMovementFailureSingleEvent:
         
         # rng sequence:
         # 1. move_roll = 2 → fail
-        # 2. event_roll = 3 → lightning (3d6) [roll 3→lightning, 6→tree]
-        # 3-5. damage dice = 1, 1, 1 → минимальный урон от молнии = 3
-        rolls = [2, 3, 1, 1, 1]
+        # 2. event_roll = 3 → lightning (flat 3-4)
+        # 3. damage_roll = 1 → lightning damage = 1%2+3 = 4
+        rolls = [2, 3, 1]
         def rng():
             return rolls.pop(0) if rolls else 1
 
         result = execute_action(Action("go_north", "Go"), st, rng=rng)
         
-        # Урон только от молнии (3), не должно быть двойного
-        assert st["visible"]["hp"] == 7
+        # Урон только от молнии (4), не должно быть двойного
+        assert st["visible"]["hp"] == 6  # 10 - 4
         assert not result.game_over
         all_events = " ".join(result.events)
         assert "lightning" in all_events.lower() or "micro" in all_events.lower()

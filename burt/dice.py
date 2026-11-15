@@ -305,20 +305,27 @@ def resolve_random_event(roll: int) -> RandomEventResult:
 # Микро-локация при провале движения — §11
 # ---------------------------------------------------------------------
 # 4 типа событий (равновероятно):
-#   камень — 1d6
-#   дерево — 2d6
-#   молния — 3d6
+#   камень   — 1-2
+#   дерево   — 2-3
+#   молния   — 3-4
 #   гнев богов — 1×lvl (lvl = visible.level, default 1)
 # ---------------------------------------------------------------------
 
 _MICRO_EVENT_TYPES = ("stone", "tree", "lightning", "god_wrath")
 
+# Flat damage ranges per event type (spec v0.7.0)
+_MICRO_DAMAGE_RANGES = {
+    "stone": (1, 2),
+    "tree": (2, 3),
+    "lightning": (3, 4),
+}
+
 
 @dataclass(frozen=True)
 class MicroEventResult:
     event_type: str  # one of _MICRO_EVENT_TYPES
-    damage: int
-    dice_count: int  # number of d6 to roll for damage
+    damage_min: int
+    damage_max: int
 
 
 def resolve_micro_event(roll: int, level: int = 1) -> MicroEventResult:
@@ -326,6 +333,9 @@ def resolve_micro_event(roll: int, level: int = 1) -> MicroEventResult:
 
     roll: 1..6 from dice. Maps to event type.
     level: Burt's current level (for god_wrath damage).
+
+    Returns flat damage range per spec:
+      stone=1-2, tree=2-3, lightning=3-4, god_wrath=1*lvl.
     """
     _validate_roll(roll)
     if level < 1:
@@ -334,30 +344,33 @@ def resolve_micro_event(roll: int, level: int = 1) -> MicroEventResult:
     idx = (roll - 1) % len(_MICRO_EVENT_TYPES)
     event_type = _MICRO_EVENT_TYPES[idx]
 
-    if event_type == "stone":
-        return MicroEventResult(event_type="stone", damage=0, dice_count=1)
-    if event_type == "tree":
-        return MicroEventResult(event_type="tree", damage=0, dice_count=2)
-    if event_type == "lightning":
+    if event_type == "god_wrath":
+        # god_wrath: fixed = level (no range, computed directly)
         return MicroEventResult(
-            event_type="lightning", damage=0, dice_count=3,
+            event_type="god_wrath",
+            damage_min=level,
+            damage_max=level,
         )
-    # god_wrath: 1×lvl
+
+    lo, hi = _MICRO_DAMAGE_RANGES[event_type]
     return MicroEventResult(
-        event_type="god_wrath", damage=level, dice_count=0,
+        event_type=event_type,
+        damage_min=lo,
+        damage_max=hi,
     )
 
 
 def calculate_micro_damage(
     micro_event: MicroEventResult, rng,
 ) -> int:
-    """Roll damage dice for a micro-location event."""
-    if micro_event.dice_count == 0:
-        return micro_event.damage  # god_wrath: already computed
-    total = 0
-    for _ in range(micro_event.dice_count):
-        total += rng()
-    return total
+    """Pick a deterministic value from the flat damage range.
+
+    Uses rng() to select within [damage_min, damage_max].
+    For god_wrath (range size 1), returns the fixed value directly.
+    """
+    if micro_event.damage_min == micro_event.damage_max:
+        return micro_event.damage_min  # god_wrath: fixed value
+    return rng() % (micro_event.damage_max - micro_event.damage_min + 1) + micro_event.damage_min
 
 
 # ---------------------------------------------------------------------
