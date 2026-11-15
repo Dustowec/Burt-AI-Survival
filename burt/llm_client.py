@@ -29,6 +29,7 @@ from typing import Any, Optional
 import aiohttp
 
 import config
+from burt import api_config
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,12 @@ logger = logging.getLogger(__name__)
 # Константы
 # ---------------------------------------------------------------------
 
-_BASE_URL = config.BASE_URL
-_MODEL = config.MODEL
+# Читаем из api_config один раз при импорте.
+# Если API_KEY пустой — LM Studio, если есть — внешний API.
+_BASE_URL = api_config.get_base_url()
+_MODEL = api_config.get_model()
 _TEMPERATURE = config.TEMPERATURE
-_API_KEY = config.API_KEY
+_API_KEY = api_config.get_api_key()
 
 # Fallback answer when LLM is unreachable twice in a row
 _FALLBACK_ANSWER = "Darkness consumes. You don't remember where you were going."

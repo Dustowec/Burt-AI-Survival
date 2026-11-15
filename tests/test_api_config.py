@@ -1,17 +1,15 @@
-"""Tests for OpenAI-compatible API support.
+"""Tests for burt/api_config.py — отдельный файл API ключа.
 
-BASE_URL + API_KEY + MODEL — три параметра для любого API.
+Если ключ есть — API, если нет — LM Studio.
+Ключ только в одном месте — не размазан по конфигами.
 """
 
-import asyncio
 import os
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import config
-from burt import llm_client
+from burt import api_config, llm_client
 
 
 # ─── Helpers ───────────────────────────────────────────────────
@@ -57,6 +55,67 @@ def _patch_aiohttp(response_json=None, captured: dict | None = None):
     return patcher
 
 
+# ─── api_config defaults ──────────────────────────────────────
+
+
+class TestApiConfigDefaults:
+    """По умолчанию — LM Studio."""
+
+    def test_default_base_url(self):
+        assert api_config.DEFAULT_BASE_URL == "http://localhost:1234/v1"
+
+    def test_default_model(self):
+        assert api_config.DEFAULT_MODEL == "local-model"
+
+    def test_no_api_key_by_default(self):
+        """По умолчанию ключ пустой — LM Studio."""
+        # При пустом API_KEY — возвращаем LM Studio
+        result = api_config._read_config()
+        assert result["api_key"] == ""
+        assert result["base_url"] == "http://localhost:1234/v1"
+        assert result["model"] == "local-model"
+
+
+# ─── api_config with env vars ─────────────────────────────────
+
+
+class TestApiConfigEnvVars:
+    """Чтение из env vars."""
+
+    def test_api_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "sk-test-123")
+        monkeypatch.setenv("LLM_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.setenv("LLM_MODEL", "gpt-4o-mini")
+
+        import importlib
+        import burt.api_config as ac
+        try:
+            importlib.reload(ac)
+            assert ac.get_api_key() == "sk-test-123"
+            assert ac.get_base_url() == "https://api.example.com/v1"
+            assert ac.get_model() == "gpt-4o-mini"
+            assert ac.is_api_configured() is True
+        finally:
+            monkeypatch.delenv("LLM_API_KEY", raising=False)
+            monkeypatch.delenv("LLM_BASE_URL", raising=False)
+            monkeypatch.delenv("LLM_MODEL", raising=False)
+            importlib.reload(ac)
+
+    def test_no_key_means_lm_studio(self, monkeypatch):
+        """Пустой ключ — LM Studio."""
+        monkeypatch.setenv("LLM_API_KEY", "")
+        import importlib
+        import burt.api_config as ac
+        try:
+            importlib.reload(ac)
+            assert ac.get_api_key() == ""
+            assert ac.get_base_url() == "http://localhost:1234/v1"
+            assert ac.is_api_configured() is False
+        finally:
+            monkeypatch.delenv("LLM_API_KEY", raising=False)
+            importlib.reload(ac)
+
+
 # ─── Auth header ──────────────────────────────────────────────
 
 
@@ -86,20 +145,6 @@ class TestAuthHeader:
         patcher = _patch_aiohttp(captured=captured)
         try:
             with patch.object(llm_client, "_API_KEY", ""):
-                await llm_client.create_chat_completion([{"role": "user", "content": "hi"}])
-        finally:
-            patcher.stop()
-
-        headers = captured["post_kwargs"].get("headers")
-        assert headers is None or "Authorization" not in headers
-
-    @pytest.mark.asyncio
-    async def test_no_auth_header_when_key_none(self):
-        """При None API_KEY заголовок не отправляется."""
-        captured: dict = {}
-        patcher = _patch_aiohttp(captured=captured)
-        try:
-            with patch.object(llm_client, "_API_KEY", None):
                 await llm_client.create_chat_completion([{"role": "user", "content": "hi"}])
         finally:
             patcher.stop()
@@ -141,47 +186,3 @@ class TestUrl:
 
         url = captured["post_url"]
         assert url == "https://api.example.com/v1/chat/completions"
-
-
-# ─── Env vars ─────────────────────────────────────────────────
-
-
-class TestEnvVars:
-    """Env vars LLM_BASE_URL, LLM_API_KEY, LLM_MODEL."""
-
-    def test_base_url_from_env(self, monkeypatch):
-        monkeypatch.setenv("LLM_BASE_URL", "https://api.together.xyz/v1")
-        import importlib
-        try:
-            importlib.reload(config)
-            assert config.BASE_URL == "https://api.together.xyz/v1"
-        finally:
-            monkeypatch.delenv("LLM_BASE_URL", raising=False)
-            importlib.reload(config)
-
-    def test_api_key_from_env(self, monkeypatch):
-        monkeypatch.setenv("LLM_API_KEY", "sk-together-key-123")
-        import importlib
-        try:
-            importlib.reload(config)
-            assert config.API_KEY == "sk-together-key-123"
-        finally:
-            monkeypatch.delenv("LLM_API_KEY", raising=False)
-            importlib.reload(config)
-
-    def test_model_from_env(self, monkeypatch):
-        monkeypatch.setenv("LLM_MODEL", "gpt-4o-mini")
-        import importlib
-        try:
-            importlib.reload(config)
-            assert config.MODEL == "gpt-4o-mini"
-        finally:
-            monkeypatch.delenv("LLM_MODEL", raising=False)
-            importlib.reload(config)
-
-    def test_empty_defaults(self):
-        """По умолчанию — пустые строки (для BASE_URL default localhost)."""
-        # BASE_URL по умолчанию localhost — это норм
-        assert config.BASE_URL == "http://localhost:1234/v1"
-        assert config.API_KEY == ""
-        assert config.MODEL == "local-model"

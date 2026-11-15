@@ -11,3 +11,4 @@ LOGS/
 .env
 epitaphs.json
 .gigacode_vsc/
+burt/api_config.py

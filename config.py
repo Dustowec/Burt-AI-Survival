@@ -22,14 +22,12 @@ import os
 #   API_KEY = ""
 #   MODEL = "local-model"
 #
-# Внешний API (OpenAI, Together, Groq):
-#   BASE_URL = "https://api.openai.com/v1"
-#   API_KEY = "sk-..."
-#   MODEL = "gpt-4o-mini"
+# Внешний API — ключ хранится в burt/api_config.py (не коммитится).
+# Если API_KEY пустой — автоматически используется LM Studio.
 
-BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:1234/v1")
-API_KEY = os.environ.get("LLM_API_KEY", "")
-MODEL = os.environ.get("LLM_MODEL", "local-model")
+BASE_URL = "http://localhost:1234/v1"
+API_KEY = ""
+MODEL = "local-model"
 TEMPERATURE = 0.95
 
 

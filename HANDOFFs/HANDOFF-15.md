@@ -79,19 +79,22 @@ MODEL RECOMMENDATIONS (6 GB VRAM):
 
 MEMORY AID (all English):
 
-  # --- LLM API simplified (HANDOFF-15) ---
-  # Three parameters only:
-  #   LLM_BASE_URL=http://localhost:1234/v1
-  #   LLM_API_KEY=""
-  #   LLM_MODEL="local-model"
+  # --- LLM API simplified (HANDOFF-15 + HANDOFF-15.1) ---
+  # Три параметра в одном файле: burt/api_config.py (НЕ коммитится)
+  # Если API_KEY пустой → LM Studio (localhost:1234)
+  # Если API_KEY есть → внешний API (OpenAI, Together, Groq, aiTunnel и т.д.)
   #
-  # config.py: BASE_URL, API_KEY, MODEL (env vars: LLM_BASE_URL, LLM_API_KEY, LLM_MODEL)
-  # llm_client.py: _BASE_URL, _MODEL, _API_KEY (no _BASE_URLS, no BACKEND)
-  # Authorization header sent if _API_KEY is non-empty
+  # Как использовать:
+  #   1. Скопируйте burt/api_config.py.example → burt/api_config.py
+  #   2. Заполните API_KEY, BASE_URL, MODEL
+  #   3. Запустите — ключ только в одном файле
   #
-  # Works with: LM Studio, OpenAI, Together AI, Groq, LiteLLM, any OpenAI-compatible API
+  # Или env vars (для CI): LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
   #
-  # .env.example updated with examples for all providers
+  # llm_client.py читает из api_config при импорте (задержка ~0ms после первого)
+  # Authorization: Bearer <key> отправляется если API_KEY не пустой
+  #
+  # .gitignore: api_config.py, .env, epitaphs.json, .gigacode_vsc/
 
   # --- From HANDOFF-14 (unchanged) ---
   - Epitaphs store: burt/epitaphs.py (load, save, add, get_all, get_last)
