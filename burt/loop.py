@@ -23,6 +23,7 @@ from burt import sleep as sleep_mod
 from burt import dice
 from burt import spawn
 from burt import combat
+from burt import loot
 from burt.combat import CombatState, BurtStats
 from burt.bestiary import ENEMIES
 from burt.dice import (
@@ -573,6 +574,42 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
     else:
         hidden["combat"] = None
         hidden["current_mode"] = "exploring"
+        if result.outcome == "burt_won":
+            dead_enemies = [e for e in result.combat.enemies if not e.alive]
+            if dead_enemies:
+                enemy_keys = [e.key for e in dead_enemies]
+                rolls = [rng() for _ in dead_enemies]
+                drop = loot.collect_loot(enemy_keys, rolls)
+                inventory = visible.setdefault("inventory", [])
+                for item in drop.items:
+                    name = item["name"]
+                    count = item["count"]
+                    existing = None
+                    for inv_item in inventory:
+                        if inv_item.get("name") == name:
+                            existing = inv_item
+                            break
+                    if existing is not None:
+                        existing["count"] = existing.get("count", 0) + count
+                    else:
+                        inventory.append({"name": name, "count": count})
+                if drop.coins_copper > 0:
+                    visible["wallet"]["copper"] = (
+                        visible["wallet"].get("copper", 0) + drop.coins_copper
+                    )
+                loot_parts: list[str] = []
+                if drop.items:
+                    loot_parts.append(
+                        ", ".join(
+                            f"{i['count']}x {i['name']}" for i in drop.items
+                        )
+                    )
+                if drop.coins_copper > 0:
+                    loot_parts.append(f"{drop.coins_copper} copper")
+                if loot_parts:
+                    events.append("Loot: " + "; ".join(loot_parts))
+                else:
+                    events.append("Loot: nothing.")
         if result.outcome == "burt_died":
             action_result.game_over = True
 
