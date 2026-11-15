@@ -114,27 +114,25 @@ class TestHungerCheck:
     def test_no_death_on_safe_step(self):
         st = _fresh_state()
         st["hidden"]["step"] = 5
-        assert main._check_hunger_death(st, lambda: 1) == "no_death"
+        assert main._check_hunger_death(st) == "no_death"
 
     def test_death_on_step_8_without_eat(self):
         st = _fresh_state()
         st["hidden"]["step"] = 8
         st["visible"]["eat"] = False
-        st["hidden"]["resurrection_used_today"] = False
-        assert main._check_hunger_death(st, lambda: 1) == "final_death"
+        assert main._check_hunger_death(st) == "final_death"
 
-    def test_resurrection_on_roll_6(self):
+    def test_death_on_step_18_without_eat(self):
         st = _fresh_state()
-        st["hidden"]["step"] = 8
+        st["hidden"]["step"] = 18
         st["visible"]["eat"] = False
-        st["hidden"]["resurrection_used_today"] = False
-        assert main._check_hunger_death(st, lambda: 6) == "resurrected"
+        assert main._check_hunger_death(st) == "final_death"
 
     def test_no_death_when_eat_true(self):
         st = _fresh_state()
         st["hidden"]["step"] = 8
         st["visible"]["eat"] = True
-        assert main._check_hunger_death(st, lambda: 1) == "no_death"
+        assert main._check_hunger_death(st) == "no_death"
 
 
 # ---------------------------------------------------------------------

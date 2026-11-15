@@ -13,20 +13,23 @@ import os
 
 
 # ---------------------------------------------------------------------
-# BACKEND LLM (§1, §31)
+# LLM API (§1, §31)
 # ---------------------------------------------------------------------
-# Крутилки. Тестами не покрываются — можно менять на лету.
+# Три параметра. Больше ничего не нужно.
 #
-# Исключение — MAX_TOKENS и LLM_TIMEOUT_SECONDS: они покрыты контрактными
-# тестами (TestLlmBudgetContract в tests/test_config.py), потому что
-# MAX_TOKENS управляется через env var BURT_MAX_TOKENS и используется
-# в llm_client.py как часть контракта.
+# Локальная модель (LM Studio):
+#   BASE_URL = "http://localhost:1234/v1"
+#   API_KEY = ""
+#   MODEL = "local-model"
+#
+# Внешний API (OpenAI, Together, Groq):
+#   BASE_URL = "https://api.openai.com/v1"
+#   API_KEY = "sk-..."
+#   MODEL = "gpt-4o-mini"
 
-BACKEND = "lm_studio"                            # "lm_studio" | "openai"
-LM_STUDIO_URL = "http://localhost:1234/v1"
-OPENAI_API_URL = ""
-OPENAI_API_KEY = ""
-MODEL = "local-model"
+BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:1234/v1")
+API_KEY = os.environ.get("LLM_API_KEY", "")
+MODEL = os.environ.get("LLM_MODEL", "local-model")
 TEMPERATURE = 0.95
 
 

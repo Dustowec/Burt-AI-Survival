@@ -1,4 +1,4 @@
-"""burt/llm_client.py — §1, §31. Async-клиент для LLM (LM Studio / OpenAI).
+"""burt/llm_client.py — §1, §31. Async-клиент для LLM.
 
 Чистый I/O слой: только HTTP-вызовы, без игровой логики.
 Асинхронный. Тестируется через unittest.mock.AsyncMock.
@@ -37,14 +37,10 @@ logger = logging.getLogger(__name__)
 # Константы
 # ---------------------------------------------------------------------
 
+_BASE_URL = config.BASE_URL
 _MODEL = config.MODEL
 _TEMPERATURE = config.TEMPERATURE
-
-# URLs
-_BASE_URLS = {
-    "lm_studio": config.LM_STUDIO_URL,
-    "openai": config.OPENAI_API_URL or "",
-}
+_API_KEY = config.API_KEY
 
 # Fallback answer when LLM is unreachable twice in a row
 _FALLBACK_ANSWER = "Darkness consumes. You don't remember where you were going."
@@ -65,10 +61,7 @@ async def create_chat_completion(
     messages: list[dict],
 ) -> dict[str, Any]:
     """POST к /v1/chat/completions. Возвращает raw JSON response."""
-    backend = config.BACKEND.lower() if config.BACKEND else "lm_studio"
-    base_url = _BASE_URLS.get(backend, _BASE_URLS["lm_studio"])
-    
-    url = f"{base_url}/chat/completions"
+    url = f"{_BASE_URL.rstrip('/')}/chat/completions"
     
     payload = {
         "model": _MODEL,
@@ -78,10 +71,15 @@ async def create_chat_completion(
     }
     
     timeout = aiohttp.ClientTimeout(total=config.LLM_TIMEOUT_SECONDS)
+    
+    # Authorization header if API key is set
+    headers = {}
+    if _API_KEY:
+        headers["Authorization"] = f"Bearer {_API_KEY}"
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.post(url, json=payload, timeout=timeout) as resp:
+            async with session.post(url, json=payload, timeout=timeout, headers=headers) as resp:
                 if resp.status == 404:
                     # Try alternative endpoint (some LM Studio versions use /chat without /v1 prefix)
                     alt_url = f"{base_url}/chat/completions"

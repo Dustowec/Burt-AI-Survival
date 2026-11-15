@@ -7,3 +7,5 @@ crashes/
 *.log
 COMMIT_MSG.txt
 state.json
+LOGS/
+.env

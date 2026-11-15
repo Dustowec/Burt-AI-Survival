@@ -463,21 +463,6 @@ class TestEngineRejectsSystemRole:
             # Флаг установлен после первого провала
             assert llm_client._engine_rejects_system_role is True
 
-class TestBackendSwitching:
-    """Поддержка двух бэкендов."""
-
-    def test_url_for_lm_studio(self):
-        assert llm_client._BASE_URLS["lm_studio"] == "http://localhost:1234/v1"
-
-    def test_openai_key_exists(self):
-        assert "openai" in llm_client._BASE_URLS
-
-    def test_model_from_config(self):
-        assert llm_client._MODEL == "local-model"
-
-    def test_temperature_from_config(self):
-        assert llm_client._TEMPERATURE == 0.95
-
 
 # ---------------------------------------------------------------------
 # TestConstants

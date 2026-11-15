@@ -25,11 +25,13 @@ from pathlib import Path
 import config
 from burt import (
     dice,
+    epitaphs as epitaphs_mod,
     hunger,
     loop,
     llm_client,
     prompts,
     quests,
+    resurrection,
     sensory,
     sleep as sleep_mod,
     state as state_mod,
@@ -119,13 +121,27 @@ def make_new_state(
     life: int = 1,
     memory: str | None = None,
     memory_cause: str | None = None,
+    epitaphs_dir: Path | None = None,
 ) -> dict:
+    # Если есть epitaphs_dir — читаем последнюю эпитафию как память
+    memory_from_epitaphs = None
+    if epitaphs_dir is not None:
+        try:
+            last = epitaphs_mod.get_last_epitaph(epitaphs_dir)
+            if last:
+                memory_from_epitaphs = last["epitaph"]
+        except (OSError, TypeError, ValueError):
+            # Не валидный путь или файл отсутствует — игнорируем
+            pass
+
+    # Приоритет: явная memory > epitaphs > None
+    final_memory = memory or memory_from_epitaphs
     return state_mod.create_initial_state(
         life=life,
         session_uuid=str(uuid.uuid4()),
         config_hash=CONFIG_HASH,
         session_started=datetime.now(timezone.utc).isoformat(),
-        memory=memory,
+        memory=final_memory,
         memory_cause=memory_cause,
     )
 
@@ -218,8 +234,10 @@ async def _write_diary(state: dict, day_log: list[dict]) -> None:
     logger.info("diary day=%d: %s", day, answer)
 
 
-async def _write_epitaph(state: dict, cause: str) -> None:
-    """Call LLM with SPIRIT_PROMPT, store epitaph in meta['memory']."""
+async def _write_epitaph(
+    state: dict, cause: str, epitaphs_dir: Path | None = None,
+) -> None:
+    """Call LLM with SPIRIT_PROMPT, store epitaph in meta['memory'] and epitaphs.json."""
     hidden = state["hidden"]
     days = hidden.get("day", 1)
     diary = hidden.get("diary")
@@ -230,6 +248,47 @@ async def _write_epitaph(state: dict, cause: str) -> None:
         prompts.SPIRIT_PROMPT, user_msg, [],
     )
     _store_epitaph(state, cause, answer)
+
+    # Сохраняем в epitaphs.json
+    if epitaphs_dir is not None:
+        life = state["meta"]["life"]
+        epitaphs_mod.add_epitaph(epitaphs_dir, life, answer, cause, days)
+        logger.info("epitaph saved to epitaphs.json life=%d", life)
+
+
+async def _write_memory_summary(
+    state: dict, epitaphs_dir: Path,
+) -> None:
+    """При жизни >= 10, читаем все эпитафии и вызываем MEMORY_SUMMARY_PROMPT."""
+    meta = state["meta"]
+    if meta.get("life", 1) < 10:
+        return
+
+    epitaphs = epitaphs_mod.load_epitaphs(epitaphs_dir)
+    if len(epitaphs) < 10:
+        return
+
+    # Собираем все эпитафии
+    user_msg = "\n\n".join(
+        f"Life {e['life']} ({e['days']} days, {e['cause']}):\n{e['epitaph']}"
+        for e in epitaphs
+    )
+
+    answer, _ = await llm_client.call_llm(
+        prompts.MEMORY_SUMMARY_PROMPT, user_msg, [],
+    )
+    meta["memory_summary"] = answer
+    logger.info("memory_summary written life=%d", meta["life"])
+
+
+def _build_system_prompt(state: dict) -> str:
+    """Build BURT_SYSTEM_PROMPT with optional memory_summary injection."""
+    base = prompts.BURT_SYSTEM_PROMPT
+    meta = state.get("meta", {})
+    summary = meta.get("memory_summary")
+    if summary:
+        base += f"\n\nAcross all your lives you understood:\n{summary}"
+    return base
 
 
 def _log_result_events(result: loop.ActionResult) -> None:
@@ -259,6 +318,7 @@ async def run_turn(
     rng,
     dry_run: bool,
     game_logger: GameLogger | None = None,
+    epitaphs_dir: Path | None = None,
 ) -> TurnResult:
     visible = state["visible"]
     hidden = state["hidden"]
@@ -278,7 +338,7 @@ async def run_turn(
                 hidden.get("day", 1),
                 visible.get("location", {}).get("name", "Unknown"),
             )
-            await _write_epitaph(state, "diarrhea")
+            await _write_epitaph(state, "diarrhea", epitaphs_dir)
             if game_logger:
                 game_logger.log_special_event(
                     day=day,
@@ -345,7 +405,7 @@ async def run_turn(
     _log_inject(step, hidden.get("day", 1), hidden.get("current_mode", "exploring"), menu, llm_prompt)
     
     answer, history = await llm_client.call_llm(
-        prompts.BURT_SYSTEM_PROMPT, llm_prompt, history,
+        _build_system_prompt(state), llm_prompt, history,
     )
     
     # P.5: No truncation
@@ -376,7 +436,9 @@ async def run_turn(
     # -- 8. Game over? --------------------------------------------
     if result.game_over:
         _log_death(state, action)
-        await _write_epitaph(state, _determine_death_cause(state, action))
+        await _write_epitaph(
+            state, _determine_death_cause(state, action), epitaphs_dir,
+        )
         if game_logger:
             game_logger.log_turn(
                 day=day,
@@ -399,7 +461,7 @@ async def run_turn(
                          result_new_hp=visible.get("hp"), end_state=state)
 
     # -- 9. Post-turn: hunger death check -------------------------
-    death_outcome = _check_hunger_death(state, rng)
+    death_outcome = _check_hunger_death(state)
     if death_outcome == "final_death":
         logger.warning(
             "Burt died | cause=hunger | step=%d day=%d hp=%d | location=%s",
@@ -408,7 +470,7 @@ async def run_turn(
             visible.get("hp", 0),
             visible.get("location", {}).get("name", "Unknown")
         )
-        await _write_epitaph(state, "hunger")
+        await _write_epitaph(state, "hunger", epitaphs_dir)
         if game_logger:
             game_logger.log_special_event(
                 day=day,
@@ -422,18 +484,6 @@ async def run_turn(
                          action_key=action.key, action_label=action.label,
                          result_events=result.events, result_game_over=True,
                          result_new_hp=visible.get("hp"), end_state=state)
-    if death_outcome == "resurrected":
-        visible["hp"] = 2
-        hidden["hp_raw"] = 2
-        hidden["resurrection_used_today"] = True
-        logger.info("Resurrected by dice roll (2 HP)")
-        if game_logger:
-            game_logger.log_special_event(
-                day=day,
-                event_type="resurrection",
-                description="Burt resurrected by dice roll",
-                state=state,
-            )
 
     # -- 10. Forced sleep on step 20 ------------------------------
     step_now = hidden.get("step", 0)
@@ -485,25 +535,23 @@ async def run_turn(
                      result_direction_moved=getattr(result, "direction_moved", None),
                      end_state=state)
 
-def _check_hunger_death(state: dict, rng) -> str:
+def _check_hunger_death(state: dict) -> str:
+    """Проверка смерти от голода.
+
+    Возвращает "final_death" если смерть от голода, иначе "no_death".
+    Воскрешение обрабатывается отдельно в game_loop.
+    """
     visible = state["visible"]
     hidden = state["hidden"]
     step = hidden.get("step", 0)
     eat = visible.get("eat", False)
-    used = hidden.get("resurrection_used_today", False)
 
     if step not in hunger.HUNGER_DEATH_AT:
         return "no_death"
     if eat:
         return "no_death"
 
-    roll = rng() if not used else 0
-    outcome = hunger.resolve_hunger(step, eat, used, roll)
-    if outcome == hunger.HungerOutcome.RESURRECTED:
-        return "resurrected"
-    if outcome == hunger.HungerOutcome.FINAL_DEATH:
-        return "final_death"
-    return "no_death"
+    return "final_death"
 
 
 def _do_sleep(state: dict) -> None:
@@ -544,14 +592,17 @@ async def game_loop(
     dry_run: bool,
     state_path: Path,
     game_logger: GameLogger | None = None,
+    epitaphs_dir: Path | None = None,
 ) -> None:
     rng = dice.roll_d6
     step_count = 0
+    epitaphs_dir = epitaphs_dir or state_path.parent
 
     while step_count < max_steps:
         try:
             turn_result = await run_turn(
                 state, history, rng, dry_run, game_logger,
+                epitaphs_dir,
             )
             game_over = turn_result.game_over
             history = turn_result.history
@@ -573,18 +624,52 @@ async def game_loop(
             logger.exception("Failed to save state")
 
         if game_over:
-            # Auto-restart: new life with incremented counter and transferred memory
+            # Воскрешение: 1d6 -> решение
+            outcome = resurrection.check_resurrection(rng)
+
+            if outcome == resurrection.ResurrectionOutcome.SUCCESS:
+                # Бурт воскресает в том же мире
+                visible = state.setdefault("visible", {})
+                hidden = state.setdefault("hidden", {})
+                visible["hp"] = resurrection.RESURRECTION_HP
+                visible["hp_max"] = max(
+                    resurrection.RESURRECTION_HP,
+                    visible.get("hp_max", 10),
+                )
+                hidden["hp_raw"] = resurrection.RESURRECTION_HP
+                hidden["resurrection_used_today"] = True
+                logger.info(
+                    "Resurrected by divine mercy (roll=6, %d HP)",
+                    resurrection.RESURRECTION_HP,
+                )
+                if game_logger:
+                    game_logger.log_special_event(
+                        day=hidden.get("day", 1),
+                        event_type="resurrection",
+                        description="Burt resurrected by dice roll",
+                        state=state,
+                    )
+                # game_over=False → продолжаем цикл
+                continue
+
+            # Если FAILED — пишем эпитафию и создаём новую жизнь
             old_memory = state["meta"].get("memory")
             old_memory_cause = state["meta"].get("memory_cause")
             old_life = state["meta"]["life"]
             new_life = old_life + 1
+
+            # Пишем память в новую жизнь из epitaphs
             state = make_new_state(
                 life=new_life,
-                memory=old_memory,
-                memory_cause=old_memory_cause,
+                epitaphs_dir=epitaphs_dir,
             )
             _sync_hidden_from_meta(state)
             _ensure_runtime_fields(state)
+
+            # Проверяем memory_summary при жизни >= 10
+            if state["meta"].get("life", 1) >= 10 and epitaphs_dir is not None:
+                await _write_memory_summary(state, epitaphs_dir)
+
             logger.info(
                 "Game over (life %d) → new life %d started (memory=%s)",
                 old_life, new_life, "yes" if old_memory else "no",
@@ -659,6 +744,7 @@ async def main() -> int:
         await game_loop(
             state, history, args.max_steps, args.dry_run, state_path,
             game_logger,
+            epitaphs_dir=state_path.parent,
         )
     except KeyboardInterrupt:
         logger.info("Ctrl+C received; saving state")
