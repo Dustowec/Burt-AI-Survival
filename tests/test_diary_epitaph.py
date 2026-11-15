@@ -240,9 +240,10 @@ class TestRunTurnHistoryReset:
         ), patch.object(
             main.loop, "execute_action", side_effect=fake_execute,
         ):
-            _, new_history = asyncio.run(
+            result = asyncio.run(
                 main.run_turn(st, history, rng=lambda: 4, dry_run=False)
             )
+            new_history = result.history
         assert new_history == []
 
 

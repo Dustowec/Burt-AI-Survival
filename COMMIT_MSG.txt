@@ -1,0 +1,11 @@
+feat(logging): JSON turn-by-turn logger with day-based directory rotation
+
+Add burt/game_logger.py for structured JSON logging of every game turn.
+Each turn is saved as LOGS/day_NNN/turn_NNNNNN.json containing full
+start/end state snapshots, sensory report, LLM prompt/response, action,
+result events, and HP changes.
+
+Special events (deaths, resurrections) are logged via log_special_event.
+Main loop passes GameLogger instance to run_turn and game_loop.
+
+Updated tests to use TurnResult dataclass instead of tuple unpacking.

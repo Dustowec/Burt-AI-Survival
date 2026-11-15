@@ -453,7 +453,8 @@ class TestForcedSleepBlockedInCombat:
                 mock_exec.return_value = main.loop.ActionResult(
                     events=["You attack the wolf."],
                 )
-                game_over, _ = await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+                result = await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+                game_over = result.game_over
 
         assert not game_over
         assert st["visible"]["hp"] != st["visible"]["hp_max"], (
@@ -488,7 +489,8 @@ class TestForcedSleepBlockedInCombat:
                     return main.loop.ActionResult(events=["You defeated the wolf!"])
 
                 mock_exec.side_effect = side_effect
-                game_over, _ = await main.run_turn(st, [], rng=lambda: 5, dry_run=False)
+                result = await main.run_turn(st, [], rng=lambda: 5, dry_run=False)
+                game_over = result.game_over
 
         assert not game_over
         assert st["hidden"]["current_mode"] == "exploring", (
@@ -522,7 +524,8 @@ class TestForcedSleepBlockedInCombat:
                 mock_exec.return_value = main.loop.ActionResult(
                     events=["You search the area."],
                 )
-                game_over, _ = await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+                result = await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+                game_over = result.game_over
 
         assert not game_over
         assert st["visible"]["hp"] == st["visible"]["hp_max"], (

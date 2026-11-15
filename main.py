@@ -17,6 +17,7 @@ import asyncio
 import logging
 import signal
 import sys
+from dataclasses import dataclass, field
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,7 @@ from burt import (
     state_io,
     search as search_mod,
 )
+from burt.game_logger import GameLogger
 
 
 logger = logging.getLogger("burt.main")
@@ -48,6 +50,27 @@ DEFAULT_STATE_PATH = Path("state.json")
 DEFAULT_MAX_STEPS = 10_000
 CONFIG_HASH = "v0.7.0"
 
+
+
+
+@dataclass
+class TurnResult:
+    """Return value from run_turn including logging metadata."""
+    game_over: bool
+    history: list[dict]
+    start_state: dict = field(default_factory=dict)
+    sensory_report: str = ""
+    llm_prompt: str = ""
+    llm_response: str = ""
+    action_key: str = ""
+    action_label: str = ""
+    result_events: list = field(default_factory=list)
+    result_game_over: bool = False
+    result_new_hp: int | None = None
+    result_search_result: str | None = None
+    result_direction_moved: str | None = None
+    end_state: dict | None = None
+    error: str | None = None
 
 # ---------------------------------------------------------------------
 # State helpers
@@ -224,12 +247,20 @@ def _log_inject(step: int, day: int, mode: str, menu: list[loop.Action], user_ms
 # Turn loop
 # ---------------------------------------------------------------------
 
-async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tuple[bool, list[dict]]:
+async def run_turn(
+    state: dict,
+    history: list[dict],
+    rng,
+    dry_run: bool,
+    game_logger: GameLogger | None = None,
+) -> TurnResult:
     visible = state["visible"]
     hidden = state["hidden"]
     day_before = hidden.get("day", 1)
+    day = hidden.get("day", 1)
+    step = hidden.get("step", 0)
 
-    # ── 0. DoT tick at start of turn ─────────────────────────
+    # -- 0. DoT tick at start of turn ----------------------------
     hp_lost = 0
     if not dry_run:
         hp_lost, dot_game_over = search_mod.tick_dot(state)
@@ -242,14 +273,21 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
                 visible.get("location", {}).get("name", "Unknown"),
             )
             await _write_epitaph(state, "diarrhea")
-            return True, history
+            if game_logger:
+                game_logger.log_special_event(
+                    day=day,
+                    event_type="death",
+                    description="Burt died from diarrhea (DoT)",
+                    state=state,
+                )
+            return TurnResult(game_over=True, history=history)
 
-    # ── 1. Sensory report ─────────────────────────────────────
+    # -- 1. Sensory report ----------------------------------------
     report = sensory.format_sensory_report(visible)
     if hp_lost > 0:
         report = f"You take {hp_lost} damage from poison.\n\n" + report
 
-    # ── 1b. Diary / punishment injection on new day ──────────
+    # -- 1b. Diary / punishment injection on new day --------------
     if hidden.get("injected_day", 0) != hidden.get("day", 1):
         if hidden.get("diary_skipped_today", False):
             report += (
@@ -261,22 +299,21 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
             report += f"\n\nYour last diary entry:\n{hidden['diary']}"
         hidden["injected_day"] = hidden.get("day", 1)
 
-    # ── 2. Hunger / sleep injection ──────────────────────────
-    step = hidden.get("step", 0)
+    # -- 2. Hunger / sleep injection ------------------------------
     if hunger.should_inject_hunger(step, visible.get("eat", False)):
         report += "\n\nYou are hungry."
     if sleep_mod.should_inject_tired(step):
         report += "\n\nYou are tired." if step < 20 else "\n\nYou are very tired."
 
-    # ── 2b. Repetition signal ────────────────────────────────
+    # -- 2b. Repetition signal ------------------------------------
     same = hidden.get("same_action_count", 0)
     if same >= 2:
         report += f"\n\nYou have done this {same + 1} times in a row. Do something else."
 
-    # ── 3. Menu ───────────────────────────────────────────────
+    # -- 3. Menu --------------------------------------------------
     menu = loop.build_menu(visible, state)
 
-    # ── 4. Dry run: just print ────────────────────────────────
+    # -- 4. Dry run: just print -----------------------------------
     if dry_run:
         print("=" * 60)
         print(f"[STEP {step}] day={hidden.get('day', 1)} mode={hidden.get('current_mode')}")
@@ -287,22 +324,23 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
         for i, a in enumerate(menu):
             print(f"  {i}. [{a.key}] {a.label}")
         print("=" * 60)
-        return False, history
+        return TurnResult(game_over=False, history=history,
+                         start_state=state, sensory_report=report)
 
-    # ── 5. LLM call ───────────────────────────────────────────
+    # -- 5. LLM call ----------------------------------------------
     menu_text = "\n".join(f"{i}. {a.label}" for i, a in enumerate(menu))
-    user_msg = f"{report}\n\nMENU:\n{menu_text}\n\nCHOICE:"
+    llm_prompt = f"{report}\n\nMENU:\n{menu_text}\n\nCHOICE:"
     
-    _log_inject(step, hidden.get("day", 1), hidden.get("current_mode", "exploring"), menu, user_msg)
+    _log_inject(step, hidden.get("day", 1), hidden.get("current_mode", "exploring"), menu, llm_prompt)
     
     answer, history = await llm_client.call_llm(
-        prompts.BURT_SYSTEM_PROMPT, user_msg, history,
+        prompts.BURT_SYSTEM_PROMPT, llm_prompt, history,
     )
     
-    # П.5: No truncation
+    # P.5: No truncation
     logger.info("LLM: %s", answer)
 
-    # ── 6. Parse and execute ─────────────────────────────────
+    # -- 6. Parse and execute -------------------------------------
     action = loop.parse_choice(answer, menu)
     logger.info("Action: %s (%s)", action.key, action.label)
 
@@ -320,17 +358,36 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
 
     _log_result_events(result)
 
-    # ── 7. Save history (trim if too long) ───────────────────
+    # -- 7. Save history (trim if too long) -----------------------
     if len(history) > 40:
         history = history[-20:]
 
-    # ── 8. Game over? ────────────────────────────────────────
+    # -- 8. Game over? --------------------------------------------
     if result.game_over:
         _log_death(state, action)
         await _write_epitaph(state, _determine_death_cause(state, action))
-        return True, history
+        if game_logger:
+            game_logger.log_turn(
+                day=day,
+                start_state=state,
+                sensory_report=report,
+                llm_prompt=llm_prompt,
+                llm_response=answer,
+                action_key=action.key,
+                action_label=action.label,
+                result_events=result.events,
+                result_game_over=True,
+                result_new_hp=visible.get("hp"),
+                end_state=state,
+            )
+        return TurnResult(game_over=True, history=history,
+                         start_state=state, sensory_report=report,
+                         llm_prompt=llm_prompt, llm_response=answer,
+                         action_key=action.key, action_label=action.label,
+                         result_events=result.events, result_game_over=True,
+                         result_new_hp=visible.get("hp"), end_state=state)
 
-    # ── 9. Post-turn: hunger death check ─────────────────────
+    # -- 9. Post-turn: hunger death check -------------------------
     death_outcome = _check_hunger_death(state, rng)
     if death_outcome == "final_death":
         logger.warning(
@@ -341,14 +398,33 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
             visible.get("location", {}).get("name", "Unknown")
         )
         await _write_epitaph(state, "hunger")
-        return True, history
+        if game_logger:
+            game_logger.log_special_event(
+                day=day,
+                event_type="death",
+                description="Burt died from hunger",
+                state=state,
+            )
+        return TurnResult(game_over=True, history=history,
+                         start_state=state, sensory_report=report,
+                         llm_prompt=llm_prompt, llm_response=answer,
+                         action_key=action.key, action_label=action.label,
+                         result_events=result.events, result_game_over=True,
+                         result_new_hp=visible.get("hp"), end_state=state)
     if death_outcome == "resurrected":
         visible["hp"] = 2
         hidden["hp_raw"] = 2
         hidden["resurrection_used_today"] = True
         logger.info("Resurrected by dice roll (2 HP)")
+        if game_logger:
+            game_logger.log_special_event(
+                day=day,
+                event_type="resurrection",
+                description="Burt resurrected by dice roll",
+                state=state,
+            )
 
-    # ── 10. Forced sleep on step 20 ──────────────────────────
+    # -- 10. Forced sleep on step 20 ------------------------------
     step_now = hidden.get("step", 0)
     chose_sleep = action.key in ("sleep", "write_diary_and_go_sleep")
     if sleep_mod.is_forced_sleep(step_now, chose_sleep):
@@ -358,19 +434,45 @@ async def run_turn(state: dict, history: list[dict], rng, dry_run: bool) -> tupl
         else:
             logger.info("Forced sleep blocked (in combat, step %d)", step_now)
 
-    # ── 11. Daily expiry ─────────────────────────────────────
+    # -- 11. Daily expiry -----------------------------------------
     quests.expire_blockades(state)
     quests.expire_deceit_penalties(state)
 
-    # ── 12. Context reset on new day ─────────────────────────
+    # -- 12. Context reset on new day -----------------------------
     day_after = hidden.get("day", 1)
     if day_after > day_before:
         history = []
 
-    # ── 13. Sync meta and save ───────────────────────────────
+    # -- 13. Sync meta and save -----------------------------------
     _sync_meta_from_hidden(state)
-    return False, history
 
+    # -- Log the turn ---------------------------------------------
+    if game_logger:
+        game_logger.log_turn(
+            day=day,
+            start_state=state,
+            sensory_report=report,
+            llm_prompt=llm_prompt,
+            llm_response=answer,
+            action_key=action.key,
+            action_label=action.label,
+            result_events=result.events,
+            result_game_over=False,
+            result_new_hp=visible.get("hp"),
+            result_search_result=getattr(result, "search_result", None),
+            result_direction_moved=getattr(result, "direction_moved", None),
+            end_state=state,
+        )
+
+    return TurnResult(game_over=False, history=history,
+                     start_state=state, sensory_report=report,
+                     llm_prompt=llm_prompt, llm_response=answer,
+                     action_key=action.key, action_label=action.label,
+                     result_events=result.events, result_game_over=False,
+                     result_new_hp=visible.get("hp"),
+                     result_search_result=getattr(result, "search_result", None),
+                     result_direction_moved=getattr(result, "direction_moved", None),
+                     end_state=state)
 
 def _check_hunger_death(state: dict, rng) -> str:
     visible = state["visible"]
@@ -430,13 +532,18 @@ async def game_loop(
     max_steps: int,
     dry_run: bool,
     state_path: Path,
+    game_logger: GameLogger | None = None,
 ) -> None:
     rng = dice.roll_d6
     step_count = 0
 
     while step_count < max_steps:
         try:
-            game_over, history = await run_turn(state, history, rng, dry_run)
+            turn_result = await run_turn(
+                state, history, rng, dry_run, game_logger,
+            )
+            game_over = turn_result.game_over
+            history = turn_result.history
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
             break
@@ -459,9 +566,6 @@ async def game_loop(
             break
 
     logger.info("Loop finished after %d turns", step_count)
-
-
-# ---------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------
 
@@ -523,8 +627,13 @@ async def main() -> int:
             return 1
 
     history: list[dict] = []
+    game_logger = GameLogger(Path("LOGS"))
+    logger.info("GameLogger initialized at LOGS/")
     try:
-        await game_loop(state, history, args.max_steps, args.dry_run, state_path)
+        await game_loop(
+            state, history, args.max_steps, args.dry_run, state_path,
+            game_logger,
+        )
     except KeyboardInterrupt:
         logger.info("Ctrl+C received; saving state")
     except Exception:
