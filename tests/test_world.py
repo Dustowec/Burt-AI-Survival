@@ -95,9 +95,12 @@ class TestRollLocationType:
     def test_roll_6_size_2_подземелье(self):
         assert world.roll_location_type(6, 2) == "dungeon"
 
-    @pytest.mark.parametrize("roll_size", [3, 4, 5, 6])
-    def test_roll_6_size_3_to_6_деревня(self, roll_size):
+    @pytest.mark.parametrize("roll_size", [3, 4])
+    def test_roll_6_size_3_to_4_деревня(self, roll_size):
         assert world.roll_location_type(6, roll_size) == "village"
+
+    def test_roll_6_size_6_кустарник(self):
+        assert world.roll_location_type(6, 6) == "thicket"
 
     def test_roll_0_raises(self):
         with pytest.raises(ValueError):
@@ -131,23 +134,21 @@ class TestRollLocationType:
         with pytest.raises(ValueError):
             world.roll_location_type(6, 7)
 
-    def test_never_returns_кустарник(self):
-        for roll in range(1, 7):
-            for size in range(1, 7):
-                try:
-                    t = world.roll_location_type(roll, size)
-                except ValueError:
-                    continue
-                assert t != "thicket"
+    def test_roll_6_size_5_перекрёсток(self):
+        assert world.roll_location_type(6, 5) == "crossroads"
 
-    def test_never_returns_старт(self):
+    def test_all_11_types_are_covered(self):
+        """Все 11 типов из LOCATION_TYPES покрываются roll_location_type."""
+        generated: set[str] = set()
         for roll in range(1, 7):
             for size in range(1, 7):
                 try:
                     t = world.roll_location_type(roll, size)
                 except ValueError:
                     continue
-                assert t != "crossroads"
+                generated.add(t)
+        missing = world.LOCATION_TYPES - generated
+        assert not missing, f"\u041d\u0435 \u043f\u043e\u043a\u0440\u044b\u0432\u0430\u044e\u0442\u0441\u044f: {missing}"
 
 
 # =====================================================================

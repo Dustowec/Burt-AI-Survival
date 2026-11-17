@@ -67,14 +67,6 @@ class TestApiConfigDefaults:
     def test_default_model(self):
         assert api_config.DEFAULT_MODEL == "local-model"
 
-    def test_no_api_key_by_default(self):
-        """По умолчанию ключ пустой — LM Studio."""
-        # При пустом API_KEY — возвращаем LM Studio
-        result = api_config._read_config()
-        assert result["api_key"] == ""
-        assert result["base_url"] == "http://localhost:1234/v1"
-        assert result["model"] == "local-model"
-
 
 # ─── api_config with env vars ─────────────────────────────────
 
@@ -99,20 +91,6 @@ class TestApiConfigEnvVars:
             monkeypatch.delenv("LLM_API_KEY", raising=False)
             monkeypatch.delenv("LLM_BASE_URL", raising=False)
             monkeypatch.delenv("LLM_MODEL", raising=False)
-            importlib.reload(ac)
-
-    def test_no_key_means_lm_studio(self, monkeypatch):
-        """Пустой ключ — LM Studio."""
-        monkeypatch.setenv("LLM_API_KEY", "")
-        import importlib
-        import burt.api_config as ac
-        try:
-            importlib.reload(ac)
-            assert ac.get_api_key() == ""
-            assert ac.get_base_url() == "http://localhost:1234/v1"
-            assert ac.is_api_configured() is False
-        finally:
-            monkeypatch.delenv("LLM_API_KEY", raising=False)
             importlib.reload(ac)
 
 

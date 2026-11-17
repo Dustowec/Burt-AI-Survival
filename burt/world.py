@@ -67,9 +67,10 @@ def roll_location_type(roll: int, roll_size: int | None = None) -> str:
     roll=3   → field
     roll=4   → steppe
     roll=5   → roll_size 1-3 → swamp / river / road
-    roll=6   → roll_size 1-6 → temple (1) / dungeon (2) / village (3-6)
+    roll=6   → roll_size 1-6 → temple (1) / dungeon (2) / village (3-4) /
+        crossroads (5) / thicket (6)
 
-    "crossroads" и "thicket" здесь не выпадают никогда.
+    Все 11 типов из LOCATION_TYPES покрываются.
     """
     _check_d6(roll)
 
@@ -96,6 +97,10 @@ def roll_location_type(roll: int, roll_size: int | None = None) -> str:
         return "temple"
     if roll_size == 2:
         return "dungeon"
+    if roll_size == 5:
+        return "crossroads"
+    if roll_size == 6:
+        return "thicket"
     return "village"
 
 

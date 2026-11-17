@@ -113,7 +113,7 @@ class TestLocations:
         # roll=6 → уточняющий 1d6
         assert config.LOCATION_TYPE_ROLLS[6] == (
             "temple", "dungeon",
-            "village", "village", "village", "village",
+            "village", "village", "crossroads", "thicket",
         )
 
     def test_rolls_values_are_known_types(self):
@@ -123,12 +123,15 @@ class TestLocations:
             for v in values:
                 assert v in config.LOCATION_TYPES
 
-    def test_start_and_bush_never_roll(self):
-        # "crossroads" и "thicket" не выпадают в roll_location_type
+    def test_all_11_types_in_rolls(self):
+        # Все 11 типов из LOCATION_TYPES покрываются LOCATION_TYPE_ROLLS
+        collected: set[str] = set()
         for entry in config.LOCATION_TYPE_ROLLS.values():
             values = (entry,) if isinstance(entry, str) else entry
-            assert "crossroads" not in values
-            assert "thicket" not in values
+            for v in values:
+                collected.add(v)
+        missing = config.LOCATION_TYPES - collected
+        assert not missing, f"Не покрываются: {missing}"
 
 
 # ---------------------------------------------------------------------

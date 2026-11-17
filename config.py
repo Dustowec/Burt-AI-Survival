@@ -116,13 +116,13 @@ LOCATION_TYPES = frozenset({
 # Расклад типа локации по 1d6.
 #   str              → один вариант
 #   tuple[str, ...]  → уточняющий бросок, индекс = roll_size - 1
-# "crossroads" и "thicket" сюда не входят — не выпадают.
+# Все 11 типов из LOCATION_TYPES покрываются.
 LOCATION_TYPE_ROLLS = {
     1: "forest",
     2: "forest",
     3: "field",
     4: "steppe",
-    5: ("swamp", "river", "road"),                       # 1d3
+    5: ("swamp", "river", "road"),                        # 1d3
     6: ("temple", "dungeon",
-        "village", "village", "village", "village"),       # 1d6
+        "village", "village", "crossroads", "thicket"),   # 1d6
 }
