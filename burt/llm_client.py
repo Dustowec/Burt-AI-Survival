@@ -57,6 +57,34 @@ _engine_rejects_system_role: bool = False
 
 
 # ---------------------------------------------------------------------
+# Message builder — folds system into user for engines that reject it
+# ---------------------------------------------------------------------
+
+def _build_messages(
+    system_msg: str,
+    user_msg: str,
+    history: list[dict],
+    reject_system: bool,
+) -> list[dict]:
+    """Build messages list for the API.
+
+    If the engine rejects 'system' role (Gemma 3n), fold system_msg
+    into the current user_msg so roles stay alternating:
+        [*history, {"role": "user", "content": system + "\\n\\n" + user}]
+    Otherwise standard:
+        [{"role": "system", ...}, *history, {"role": "user", ...}]
+    """
+    if reject_system:
+        combined = system_msg + "\n\n" + user_msg
+        return [*history, {"role": "user", "content": combined}]
+    return [
+        {"role": "system", "content": system_msg},
+        *history,
+        {"role": "user", "content": user_msg},
+    ]
+
+
+# ---------------------------------------------------------------------
 # Low-level API call
 # ---------------------------------------------------------------------
 
@@ -84,9 +112,11 @@ async def create_chat_completion(
         try:
             async with session.post(url, json=payload, timeout=timeout, headers=headers) as resp:
                 if resp.status == 404:
-                    # Try alternative endpoint (some LM Studio versions use /chat without /v1 prefix)
-                    alt_url = f"{base_url}/chat/completions"
-                    async with session.post(alt_url, json=payload, timeout=timeout) as resp2:
+                    # Some LM Studio versions use /chat without /v1 prefix.
+                    alt_url = f"{_BASE_URL.rstrip('/')}/chat/completions"
+                    async with session.post(
+                        alt_url, json=payload, timeout=timeout, headers=headers,
+                    ) as resp2:
                         data = await resp2.json()
                         return data
                 
@@ -128,13 +158,10 @@ async def call_llm(
     if messages_history is None:
         messages_history = []
 
-    # Если движок отвергает 'system' (Gemma 3n), используем 'user' вместо него.
-    _role = "user" if _engine_rejects_system_role else "system"
-    full_messages = [
-        {"role": _role, "content": system_msg},
-        *messages_history,
-        {"role": "user", "content": user_msg},
-    ]
+    full_messages = _build_messages(
+        system_msg, user_msg, messages_history,
+        _engine_rejects_system_role,
+    )
 
     for attempt in range(_MAX_RETRIES + 1):
         try:
@@ -174,13 +201,17 @@ async def call_llm(
         except Exception as e:
             logger.warning(f"LLM call failed (attempt {attempt+1}/{_MAX_RETRIES+1}): {e}")
             
-            # ХАК ДЛЯ GEMMA/LM STUDIO: если движок вырезает system и падает на чередовании
-            if "roles must alternate" in str(e) and full_messages[0]["role"] == "system":
+            # Gemma 3n rejects 'system' role. Switch to folding system into user.
+            if "roles must alternate" in str(e) and not _engine_rejects_system_role:
                 _engine_rejects_system_role = True
-                logger.warning("Engine rejected 'system' role (likely Gemma). Retrying with 'user' role.")
-                # Делаем копию, чтобы не мутировать аргументы первого вызова
-                full_messages = [dict(m) for m in full_messages]
-                full_messages[0]["role"] = "user"
+                logger.warning(
+                    "Engine rejected 'system' role (likely Gemma). "
+                    "Switching to combined user-message mode."
+                )
+                full_messages = _build_messages(
+                    system_msg, user_msg, messages_history,
+                    _engine_rejects_system_role,
+                )
                 
             if attempt < _MAX_RETRIES:
                 continue

@@ -395,7 +395,8 @@ class TestCallLlm:
             
             assert call_args_1[0]["role"] == "system"
             assert call_args_2[0]["role"] == "user"
-            assert call_args_2[0]["content"] == "sys prompt"
+            assert "sys prompt" in call_args_2[0]["content"]
+            assert "user msg" in call_args_2[0]["content"]
 
 
 # ---------------------------------------------------------------------
@@ -445,7 +446,8 @@ class TestEngineRejectsSystemRole:
             # Первый вызов получает messages с role="user" вместо "system"
             calls_args = mock_create.call_args_list[0][0][0]
             assert calls_args[0]["role"] == "user"
-            assert calls_args[0]["content"] == "sys prompt"
+            assert "sys prompt" in calls_args[0]["content"]
+            assert "user msg" in calls_args[0]["content"]
 
     @pytest.mark.asyncio
     async def test_retry_sets_global_flag(self):
@@ -657,3 +659,110 @@ class TestCreateChatCompletion:
         assert len(msg) > 300, (
             f"error body must not be truncated at 200; message len = {len(msg)}"
         )
+
+
+# ---------------------------------------------------------------------
+# TestGemmaFallback — TZ-4: fold system into user + 404 fix
+# ---------------------------------------------------------------------
+
+class TestGemmaFallback:
+    """TZ-4: _build_messages helper, Gemma 3n retry logic, 404 NameError fix."""
+
+    def test_build_messages_standard(self):
+        msgs = llm_client._build_messages("SYS", "USR", [], False)
+        assert msgs == [
+            {"role": "system", "content": "SYS"},
+            {"role": "user", "content": "USR"},
+        ]
+
+    def test_build_messages_folded(self):
+        msgs = llm_client._build_messages("SYS", "USR", [], True)
+        assert len(msgs) == 1
+        assert msgs[0]["role"] == "user"
+        assert "SYS" in msgs[0]["content"]
+        assert "USR" in msgs[0]["content"]
+
+    def test_build_messages_folded_with_history(self):
+        history = [
+            {"role": "user", "content": "previous user"},
+            {"role": "assistant", "content": "previous assistant"},
+        ]
+        msgs = llm_client._build_messages("SYS", "USR", history, True)
+        assert msgs[0] == {"role": "user", "content": "previous user"}
+        assert msgs[1] == {"role": "assistant", "content": "previous assistant"}
+        assert msgs[-1]["role"] == "user"
+        assert "SYS" in msgs[-1]["content"]
+
+    def test_empty_history_gemma_mode_no_double_user(self):
+        """Reproduces forced-sleep scenario: history=[], flag=True."""
+        msgs = llm_client._build_messages("SYS", "USR", [], True)
+        assert len(msgs) == 1
+        assert msgs[0]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_first_call_uses_system_role(self):
+        """Default flag=False: first call must include role=system."""
+        captured = []
+        async def fake_post(messages):
+            captured.append(list(messages))
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "ok"},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            }
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            await llm_client.call_llm("SYS", "USR", [])
+        assert captured[0][0]["role"] == "system"
+        assert captured[0][-1]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_switch_on_400_folds_system(self):
+        calls = []
+        async def fake_post(messages):
+            calls.append(list(messages))
+            if len(calls) == 1:
+                raise RuntimeError("roles must alternate")
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "ok"},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            }
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            answer, _ = await llm_client.call_llm("SYS", "USR", [])
+        assert answer == "ok"
+        assert len(calls) == 2
+        # second call: no system role, single folded user
+        assert all(m["role"] != "system" for m in calls[1])
+        user_msgs = [m for m in calls[1] if m["role"] == "user"]
+        assert len(user_msgs) == 1
+        assert "SYS" in user_msgs[0]["content"]
+        assert "USR" in user_msgs[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_subsequent_calls_use_folded(self):
+        llm_client._engine_rejects_system_role = True
+        captured = []
+        async def fake_post(messages):
+            captured.append(list(messages))
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "ok"},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            }
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            await llm_client.call_llm("SYS", "USR", [])
+        assert len(captured[0]) == 1
+        assert captured[0][0]["role"] == "user"
+        assert "SYS" in captured[0][0]["content"]
+
+    def test_404_uses_base_url_constant(self):
+        """Reproduces the NameError: alt_url must use _BASE_URL, not base_url."""
+        import inspect
+        src = inspect.getsource(llm_client.create_chat_completion)
+        import re
+        # ищем base_url не предшествуемый подчёркиванием
+        matches = re.findall(r'(?<!_)base_url', src)
+        assert matches == [], f"Bare 'base_url' found in source: {matches}"
