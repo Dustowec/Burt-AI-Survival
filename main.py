@@ -654,7 +654,6 @@ async def game_loop(
 
             # Если FAILED — пишем эпитафию и создаём новую жизнь
             old_memory = state["meta"].get("memory")
-            old_memory_cause = state["meta"].get("memory_cause")
             old_life = state["meta"]["life"]
             new_life = old_life + 1
 
@@ -665,6 +664,7 @@ async def game_loop(
             )
             _sync_hidden_from_meta(state)
             _ensure_runtime_fields(state)
+            history = []  # <-- wipe LLM context between lives (bug fix)
 
             # Проверяем memory_summary при жизни >= 10
             if state["meta"].get("life", 1) >= 10 and epitaphs_dir is not None:
