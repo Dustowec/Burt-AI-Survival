@@ -195,6 +195,11 @@ async def call_llm(
                     "LLM response truncated (finish_reason=length), accepting partial answer"
                 )
             
+            # Append the FULL pair (user + assistant) atomically. History stays
+            # consistent: even length, always user/assistant alternation.
+            # This matters because message_builder and Gemma's template require
+            # history[0] == user when system is folded out.
+            messages_history.append({"role": "user", "content": user_msg})
             messages_history.append({"role": "assistant", "content": answer})
             return answer, messages_history
             

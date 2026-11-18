@@ -157,9 +157,11 @@ class TestCallLlm:
             result, history = await llm_client.call_llm(system, user, [])
             
             assert result == "Я иду на north."
-            assert len(history) == 1
-            assert history[0]["role"] == "assistant"
-            assert history[0]["content"] == "Я иду на north."
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[0]["content"] == user
+            assert history[1]["role"] == "assistant"
+            assert history[1]["content"] == "Я иду на north."
 
     @pytest.mark.asyncio
     async def test_history_accumulation(self):
@@ -171,10 +173,12 @@ class TestCallLlm:
             ]
             
             _, hist1 = await llm_client.call_llm("sys", "user1", [])
-            assert len(hist1) == 1
+            assert len(hist1) == 2
+            assert hist1[0]["role"] == "user"
+            assert hist1[1]["role"] == "assistant"
             
             _, hist2 = await llm_client.call_llm("sys", "user2", hist1)
-            assert len(hist2) == 2
+            assert len(hist2) == 4
 
     @pytest.mark.asyncio
     async def test_first_attempt_fails_second_succeeds(self):
@@ -227,7 +231,9 @@ class TestCallLlm:
             
             result, history = await llm_client.call_llm("sys", "user", None)
             assert result == "OK"
-            assert len(history) == 1
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
 
     # -----------------------------------------------------------------
     # Логика валидации ответа (пустой content / finish_reason=length)
@@ -248,8 +254,10 @@ class TestCallLlm:
                 result, history = await llm_client.call_llm("sys", "user", [])
             
             assert result == "Partial answer..."
-            assert len(history) == 1
-            assert history[0]["content"] == "Partial answer..."
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
+            assert history[1]["content"] == "Partial answer..."
             assert mock_create.call_count == 1, "length с непустым content НЕ должен ретраиться"
             
             warns = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
@@ -268,8 +276,10 @@ class TestCallLlm:
             result, history = await llm_client.call_llm("sys", "user", [])
             
             assert result == "Ok"
-            assert len(history) == 1, "в истории должна быть только успешная реплика"
-            assert history[0]["content"] == "Ok"
+            assert len(history) == 2, "в истории пара user+assistant после успешной попытки"
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
+            assert history[1]["content"] == "Ok"
             assert mock_create.call_count == 2
 
     @pytest.mark.asyncio
@@ -299,8 +309,10 @@ class TestCallLlm:
             result, history = await llm_client.call_llm("sys", "user", [])
             
             assert result == "Ok"
-            assert len(history) == 1
-            assert history[0]["content"] == "Ok"
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
+            assert history[1]["content"] == "Ok"
             assert mock_create.call_count == 2
 
     @pytest.mark.asyncio
@@ -316,8 +328,10 @@ class TestCallLlm:
             result, history = await llm_client.call_llm("sys", "user", history_arg)
             
             assert history is history_arg, "функция должна вернуть тот же объект истории"
-            assert len(history) == 1
-            assert history[0]["content"] == "Ok"
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
+            assert history[1]["content"] == "Ok"
 
     # -----------------------------------------------------------------
     # Логирование usage
@@ -363,7 +377,9 @@ class TestCallLlm:
                 result, history = await llm_client.call_llm("sys", "user", [])
             
             assert result == "Hi"
-            assert len(history) == 1
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
             
             infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
             assert any("llm usage" in m for m in infos), \
@@ -387,7 +403,9 @@ class TestCallLlm:
             result, history = await llm_client.call_llm("sys prompt", "user msg", [])
             
             assert result == "Ok"
-            assert len(history) == 1
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
             
             # Проверяем, что первый вызов был system, а второй - user
             call_args_1 = mock_create.call_args_list[0][0][0]
@@ -440,7 +458,9 @@ class TestEngineRejectsSystemRole:
             result, history = await llm_client.call_llm("sys prompt", "user msg", [])
 
             assert result == "Ok"
-            assert len(history) == 1
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
             # Вызывается ровно 1 раз — без предварительного падения
             assert mock_create.call_count == 1
             # Первый вызов получает messages с role="user" вместо "system"
@@ -461,7 +481,9 @@ class TestEngineRejectsSystemRole:
             result, history = await llm_client.call_llm("sys prompt", "user msg", [])
 
             assert result == "Ok"
-            assert len(history) == 1
+            assert len(history) == 2
+            assert history[0]["role"] == "user"
+            assert history[1]["role"] == "assistant"
             # Флаг установлен после первого провала
             assert llm_client._engine_rejects_system_role is True
 
@@ -766,3 +788,106 @@ class TestGemmaFallback:
         # ищем base_url не предшествуемый подчёркиванием
         matches = re.findall(r'(?<!_)base_url', src)
         assert matches == [], f"Bare 'base_url' found in source: {matches}"
+
+    # -----------------------------------------------------------------
+    # TZ-4-FIX: history grows by pair (user + assistant)
+    # -----------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_history_grows_by_pair(self):
+        """call_llm appends user+assistant pair atomically on success."""
+        calls = []
+        async def fake_post(messages):
+            calls.append(list(messages))
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "answer_0"},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            }
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            _, history = await llm_client.call_llm("SYS", "USR_0", [])
+        assert len(history) == 2
+        assert history[0] == {"role": "user", "content": "USR_0"}
+        assert history[1] == {"role": "assistant", "content": "answer_0"}
+
+    @pytest.mark.asyncio
+    async def test_fallback_does_not_append(self):
+        """On fallback (all attempts failed), history stays unchanged."""
+        async def fake_post(messages):
+            raise RuntimeError("transient error")
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            _, history = await llm_client.call_llm("SYS", "USR", [])
+        assert history == []  # nothing appended on fallback
+
+    @pytest.mark.asyncio
+    async def test_second_call_with_history_alternates(self):
+        """Reproduces step-1 scenario after successful step 0."""
+        calls = []
+        async def fake_post(messages):
+            calls.append(list(messages))
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "ok"},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            }
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            # Step 0
+            _, hist = await llm_client.call_llm("SYS", "USR_0", [])
+            # Step 1
+            _, hist = await llm_client.call_llm("SYS", "USR_1", hist)
+        # Second call: [system, user_0, assistant_0, user_1]
+        second_call = calls[1]
+        roles = [m["role"] for m in second_call]
+        assert roles == ["system", "user", "assistant", "user"]
+        assert hist[-2] == {"role": "user", "content": "USR_1"}
+        assert hist[-1] == {"role": "assistant", "content": "ok"}
+
+    @pytest.mark.asyncio
+    async def test_gemma_fold_with_paired_history(self):
+        """After pair-append fix, fold produces valid alternation."""
+        llm_client._engine_rejects_system_role = True
+        captured = []
+        async def fake_post(messages):
+            captured.append(list(messages))
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "ok"},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            }
+        # Simulate history from step 0: [user_0, assistant_0]
+        history = [
+            {"role": "user", "content": "USR_0"},
+            {"role": "assistant", "content": "answer_0"},
+        ]
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            await llm_client.call_llm("SYS", "USR_1", history)
+        # Fold: [user_0, assistant_0, user_1(SYS+USR)]
+        msgs = captured[0]
+        roles = [m["role"] for m in msgs]
+        assert roles == ["user", "assistant", "user"]
+        assert "SYS" in msgs[-1]["content"]
+        assert "USR_1" in msgs[-1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_gemma_fold_empty_history_single_user(self):
+        """New life after TZ-5: history=[], flag=True -> single user."""
+        llm_client._engine_rejects_system_role = True
+        captured = []
+        async def fake_post(messages):
+            captured.append(list(messages))
+            return {
+                "choices": [{"message": {"role": "assistant", "content": "ok"},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            }
+        with patch.object(llm_client, "create_chat_completion",
+                          side_effect=fake_post):
+            await llm_client.call_llm("SYS", "USR", [])
+        assert len(captured[0]) == 1
+        assert captured[0][0]["role"] == "user"
+        assert "SYS" in captured[0][0]["content"]
+        assert "USR" in captured[0][0]["content"]
