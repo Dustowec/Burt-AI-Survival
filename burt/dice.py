@@ -326,6 +326,7 @@ class MicroEventResult:
     event_type: str  # one of _MICRO_EVENT_TYPES
     damage_min: int
     damage_max: int
+    flat_damage: Optional[int] = None  # None = roll rng, int = fixed damage
 
 
 def resolve_micro_event(roll: int, level: int = 1) -> MicroEventResult:
@@ -345,11 +346,11 @@ def resolve_micro_event(roll: int, level: int = 1) -> MicroEventResult:
     event_type = _MICRO_EVENT_TYPES[idx]
 
     if event_type == "god_wrath":
-        # god_wrath: fixed = level (no range, computed directly)
         return MicroEventResult(
             event_type="god_wrath",
-            damage_min=level,
-            damage_max=level,
+            damage_min=0,
+            damage_max=0,
+            flat_damage=level,
         )
 
     lo, hi = _MICRO_DAMAGE_RANGES[event_type]
@@ -365,12 +366,14 @@ def calculate_micro_damage(
 ) -> int:
     """Pick a deterministic value from the flat damage range.
 
-    Uses rng() to select within [damage_min, damage_max].
-    For god_wrath (range size 1), returns the fixed value directly.
+    For flat_damage set (god_wrath), returns the fixed value directly.
+    Otherwise rolls rng() within [damage_min, damage_max].
     """
-    if micro_event.damage_min == micro_event.damage_max:
-        return micro_event.damage_min  # god_wrath: fixed value
-    return rng() % (micro_event.damage_max - micro_event.damage_min + 1) + micro_event.damage_min
+    if micro_event.flat_damage is not None:
+        return micro_event.flat_damage
+    return micro_event.damage_min + (rng() - 1) % (
+        micro_event.damage_max - micro_event.damage_min + 1
+    )
 
 
 # ---------------------------------------------------------------------

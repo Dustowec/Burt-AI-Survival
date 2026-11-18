@@ -435,14 +435,14 @@ class TestOsmotretPunishment:
             # rng side_effect:
             # 1. move_roll (2 -> fail)
             # 2. event_roll (6 -> stone, flat 1-2)
-            # 3. damage_roll (6 -> 6%2+1 = 1)
+            # 3. damage_roll (6 -> 1+(6-1)%2 = 1+1 = 2)
             rolls = [2, 6, 6]
             def rng():
                 return rolls.pop(0) if rolls else 1
 
             result = execute_action(Action("go_north", "Go"), st, rng=rng)
             
-            # stone damage = 1, HP = 0 -> game_over
+            # stone damage = 2, HP = -1 → 0 -> game_over
             assert st["visible"]["hp"] == 0
             assert result.game_over is True, "Должен быть game_over, если HP упало до 0"
 
@@ -452,19 +452,19 @@ class TestOsmotretPunishment:
             st["hidden"]["hp_raw"] = 10
             
             # rng: move_roll=2 (fail), event_roll=3 (lightning, flat 3-4), damage_roll=6
-            # lightning damage = 6%2+3 = 3
+            # lightning damage = 3+(6-1)%2 = 3+1 = 4
             rolls = [2, 3, 6]
             def rng():
                 return rolls.pop(0) if rolls else 3
 
             result = execute_action(Action("go_north", "Go"), st, rng=rng)
             
-            assert st["visible"]["hp"] == 7  # 10 - 3
+            assert st["visible"]["hp"] == 6  # 10 - 4
             assert result.game_over is False
             # ГЛАВНОЕ: micro_location должен быть записан, чтобы main.py увидел причину
             assert st["hidden"]["micro_location"]["active"] is True
             assert st["hidden"]["micro_location"]["event_type"] == "lightning"
-            assert st["hidden"]["micro_location"]["damage"] == 3
+            assert st["hidden"]["micro_location"]["damage"] == 4
 
 
 # ─── Save/Load Integrity (TZ_for_GigaCode.md — пункт 2) ─────────
@@ -733,15 +733,15 @@ class TestMovementFailureSingleEvent:
         # rng sequence:
         # 1. move_roll = 2 → fail
         # 2. event_roll = 3 → lightning (flat 3-4)
-        # 3. damage_roll = 1 → lightning damage = 1%2+3 = 4
+        # 3. damage_roll = 1 → lightning damage = 3+(1-1)%2 = 3
         rolls = [2, 3, 1]
         def rng():
             return rolls.pop(0) if rolls else 1
 
         result = execute_action(Action("go_north", "Go"), st, rng=rng)
         
-        # Урон только от молнии (4), не должно быть двойного
-        assert st["visible"]["hp"] == 6  # 10 - 4
+        # Урон только от молнии (3), не должно быть двойного
+        assert st["visible"]["hp"] == 7  # 10 - 3
         assert not result.game_over
         all_events = " ".join(result.events)
         assert "lightning" in all_events.lower() or "micro" in all_events.lower()

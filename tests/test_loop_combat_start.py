@@ -479,10 +479,10 @@ class TestMicroLocation:
 
     def test_god_wrath_damage_uses_level(self):
         from burt.dice import resolve_micro_event, calculate_micro_damage
-        # roll=4 -> god_wrath, level=5 -> damage=5
+        # roll=4 -> god_wrath, level=5 -> flat_damage=5
         event = resolve_micro_event(4, level=5)
         assert event.event_type == "god_wrath"
-        damage = calculate_micro_damage(event, lambda: 0)  # dice_count=0
+        damage = calculate_micro_damage(event, lambda: 0)  # rng not called (flat)
         assert damage == 5
 
     def test_stone_damage_flat(self):
@@ -491,9 +491,9 @@ class TestMicroLocation:
         assert event.event_type == "stone"
         assert event.damage_min == 1
         assert event.damage_max == 2
-        # flat 1-2: rng=4 → 4%2+1 = 1
-        damage = calculate_micro_damage(event, lambda: 4)
-        assert damage == 1
+        # flat 1-2: 1+(rng-1)%2 → rng=1→1, rng=2→2, rng=3→1, rng=4→2
+        assert calculate_micro_damage(event, lambda: 1) == 1
+        assert calculate_micro_damage(event, lambda: 4) == 2
 
     def test_tree_damage_flat(self):
         from burt.dice import resolve_micro_event, calculate_micro_damage
@@ -501,9 +501,9 @@ class TestMicroLocation:
         assert event.event_type == "tree"
         assert event.damage_min == 2
         assert event.damage_max == 3
-        # flat 2-3: rng=3 → 3%2+2 = 3
-        damage = calculate_micro_damage(event, lambda: 3)
-        assert damage == 3
+        # flat 2-3: 2+(rng-1)%2 → rng=1→2, rng=2→3, rng=3→2, rng=4→3
+        assert calculate_micro_damage(event, lambda: 1) == 2
+        assert calculate_micro_damage(event, lambda: 4) == 3
 
     def test_lightning_damage_flat(self):
         from burt.dice import resolve_micro_event, calculate_micro_damage
@@ -511,9 +511,9 @@ class TestMicroLocation:
         assert event.event_type == "lightning"
         assert event.damage_min == 3
         assert event.damage_max == 4
-        # flat 3-4: rng=2 → 2%2+3 = 3
-        damage = calculate_micro_damage(event, lambda: 2)
-        assert damage == 3
+        # flat 3-4: 3+(rng-1)%2 → rng=1→3, rng=2→4, rng=3→3, rng=4→4
+        assert calculate_micro_damage(event, lambda: 1) == 3
+        assert calculate_micro_damage(event, lambda: 2) == 4
 
 
 # ---------------------------------------------------------------------
@@ -606,3 +606,75 @@ class TestGoForwardInitTZ7:
         assert st["hidden"]["combat"] is not None
         combined = "\n".join(result.events)
         assert "[COMBAT]" in combined
+
+
+# ---------------------------------------------------------------------
+# TZ-6: micro-event flat damage (stone=1-2, tree=2-3, lightning=3-4,
+#       god_wrath=level, no dice_count)
+# ---------------------------------------------------------------------
+
+
+def _assertion_rng():
+    """rng that raises AssertionError if called."""
+    def _rng():
+        raise AssertionError("rng should not be called for flat damage")
+    return _rng
+
+
+class TestMicroEventFlatDamageTZ6:
+    """TZ-6: flat damage ranges, no dice_count, flat_damage field."""
+
+    def test_stone_damage_range(self):
+        from burt.dice import resolve_micro_event, calculate_micro_damage
+        # _seq_rng([1]) -> 1, _seq_rng([4]) -> 2
+        event = resolve_micro_event(1, level=1)
+        assert event.event_type == "stone"
+        assert event.flat_damage is None
+
+        assert calculate_micro_damage(event, lambda: 1) == 1
+        assert calculate_micro_damage(event, lambda: 4) == 2
+
+    def test_tree_damage_range(self):
+        from burt.dice import resolve_micro_event, calculate_micro_damage
+        # _seq_rng([1]) -> 2, _seq_rng([4]) -> 3
+        event = resolve_micro_event(2, level=1)
+        assert event.event_type == "tree"
+        assert event.flat_damage is None
+
+        assert calculate_micro_damage(event, lambda: 1) == 2
+        assert calculate_micro_damage(event, lambda: 4) == 3
+
+    def test_lightning_damage_range(self):
+        from burt.dice import resolve_micro_event, calculate_micro_damage
+        # _seq_rng([1]) -> 3, _seq_rng([4]) -> 4
+        event = resolve_micro_event(3, level=1)
+        assert event.event_type == "lightning"
+        assert event.flat_damage is None
+
+        assert calculate_micro_damage(event, lambda: 1) == 3
+        assert calculate_micro_damage(event, lambda: 4) == 4
+
+    def test_god_wrath_flat_no_rng(self):
+        from burt.dice import resolve_micro_event, calculate_micro_damage
+        event = resolve_micro_event(roll=4, level=3)
+        assert event.event_type == "god_wrath"
+        assert event.flat_damage == 3
+
+        # rng should NOT be called
+        damage = calculate_micro_damage(event, _assertion_rng())
+        assert damage == 3
+
+    def test_god_wrath_level_scaling(self):
+        from burt.dice import resolve_micro_event, calculate_micro_damage
+        event = resolve_micro_event(roll=4, level=5)
+        assert event.event_type == "god_wrath"
+        assert event.flat_damage == 5
+
+        damage = calculate_micro_damage(event, _assertion_rng())
+        assert damage == 5
+
+    def test_old_dice_fields_removed(self):
+        from burt.dice import resolve_micro_event
+        event = resolve_micro_event(roll=1, level=1)
+        assert not hasattr(event, "dice_count")
+        assert not hasattr(event, "dice_count")
