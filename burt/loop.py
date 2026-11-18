@@ -117,6 +117,13 @@ def build_menu(visible: dict, state: dict) -> list[Action]:
         actions.append(Action(key="go_forward", label="Go forward"))
         return actions
 
+    # ─── TZ-9: Encounter menu (revealed pending encounter) ───
+    if hidden.get("encounter_revealed") is True:
+        if _is_pending_encounter_valid(hidden):
+            return _build_encounter_menu(hidden)
+        else:
+            _clear_pending_encounter(hidden)
+
     actions: list[Action] = []
     last = hidden.get("last_action")
     same_count = hidden.get("same_action_count", 0)
@@ -190,6 +197,166 @@ def _build_combat_menu(visible: dict, state: dict) -> list[Action]:
         if burt.spells_available:
             actions.append(Action(key="cast", label="Cast"))
     return actions
+
+
+def _build_encounter_menu(hidden: dict) -> list[Action]:
+    """Build encounter menu: attack enemies + go_away_to exits."""
+    pe = hidden.get("pending_encounter")
+    if not isinstance(pe, dict):
+        return []
+    enemy_keys = pe.get("enemy_keys", [])
+    if not enemy_keys:
+        return []
+
+    preview = _preview_pending_enemies(enemy_keys)
+    actions: list[Action] = []
+
+    for e in preview:
+        actions.append(Action(
+            key=f"attack_{e['id']}",
+            label=f"Attack {e['display']} ({e['id']})",
+            target_id=e["id"],
+        ))
+
+    # Add go_away_to for each exit
+    graph = hidden.get("location_graph", {})
+    node_id = hidden.get("current_node_id", "start")
+    node = graph.get(node_id, {})
+    exits = node.get("exits", {})
+    for d in DIRECTIONS:
+        if exits.get(d):
+            actions.append(Action(
+                key=f"go_away_to_{d}",
+                label=f"Go away to {d}",
+            ))
+
+    return actions
+
+
+def _execute_encounter_attack(
+    action: Action, hidden: dict, visible: dict, rng,
+) -> ActionResult:
+    """Handle attack_{enemy_id} from revealed encounter."""
+    target_id = action.target_id or action.key[len("attack_"):]
+
+    pe = hidden.get("pending_encounter")
+    if not isinstance(pe, dict):
+        return error_result("no pending encounter")
+
+    enemy_keys = pe.get("enemy_keys", [])
+    if not enemy_keys:
+        return error_result("no pending encounter")
+
+    # Validate target against preview
+    preview = _preview_pending_enemies(enemy_keys)
+    valid_ids = {e["id"] for e in preview}
+    if target_id not in valid_ids:
+        return error_result(f"unknown enemy: {target_id}")
+
+    # Start combat with Burt initiative
+    _clear_pending_encounter(hidden)
+    hidden["step"] = hidden.get("step", 0) + 1
+    combat_report = _start_combat(enemy_keys, "burt", hidden, visible)
+    return ActionResult(events=[combat_report])
+
+
+def _execute_go_away(
+    action: Action, hidden: dict, visible: dict, rng,
+) -> ActionResult:
+    """Handle go_away_to_{direction} from revealed encounter."""
+    direction = action.key[len("go_away_to_"):]
+    if direction not in DIRECTIONS:
+        return error_result(f"Invalid direction: {direction}")
+
+    graph = hidden.get("location_graph", {})
+    current = hidden.get("current_node_id", "start")
+    if current not in graph:
+        return error_result("current node missing from graph")
+    node = graph[current]
+    if "exits" in node:
+        next_id = node["exits"].get(direction)
+    else:
+        next_id = node.get(direction)
+    if not next_id or next_id not in graph:
+        return error_result(f"no exit {direction}")
+
+    # Clear pending before movement and record last_action like normal go.
+    _clear_pending_encounter(hidden)
+    hidden["last_action"] = action.key
+    hidden["same_action_count"] = 1
+
+    # Execute normal movement (one step, same as go_)
+    move_roll = rng()
+    move_result = dice.resolve_movement(move_roll).result
+    if move_result in ("fail_bad", "fail"):
+        return _handle_movement_failure(
+            direction, move_result, hidden, visible, rng,
+        )
+
+    hidden["current_node_id"] = next_id
+    next_node = graph[next_id]
+
+    if not next_node.get("entered", False):
+        _enter_new_node(graph, next_id, rng)
+        next_node = graph[next_id]
+
+    loc_type = next_node.get("type") or ""
+    visible["location"]["name"] = _resolve_location_name(
+        loc_type, next_id,
+    )
+    if "exits" in next_node:
+        visible["location"]["exits"] = [
+            d for d, t in next_node["exits"].items() if t
+        ]
+    else:
+        visible["location"]["exits"] = [
+            d for d in DIRECTIONS if next_node.get(d)
+        ]
+
+    hidden["step"] = hidden.get("step", 0) + 1
+
+    combat_report = _maybe_start_combat_on_enter(
+        loc_type, hidden, visible, rng,
+    )
+    if combat_report is not None:
+        return ActionResult(
+            events=[combat_report],
+            direction_moved=direction,
+        )
+
+    if move_roll in (5, 6):
+        ev = resolve_movement_event(
+            move_roll,
+            level=visible.get("level", 1),
+            rng=rng,
+            hp_max=visible.get("hp_max", 10),
+            mp_max=visible.get("mp_max", 3),
+        )
+        if ev.event_type == "loot":
+            visible["wallet"]["coin"] += ev.coin
+        elif ev.event_type == "blessing":
+            current_hp = visible.get("hp", 10)
+            new_hp = min(current_hp + ev.hp_restore,
+                         visible.get("hp_max", 10))
+            visible["hp"] = new_hp
+            hidden["hp_raw"] = new_hp
+            current_mp = visible.get("mp", 3)
+            new_mp = min(current_mp + ev.mp_restore,
+                         visible.get("mp_max", 3))
+            visible["mp"] = new_mp
+            hidden["mp_raw"] = new_mp
+        if ev.description:
+            events_list = [sensory.format_sensory_report(visible)]
+            events_list.insert(0, ev.description)
+            return ActionResult(
+                events=events_list,
+                direction_moved=direction,
+            )
+
+    return ActionResult(
+        events=[sensory.format_sensory_report(visible)],
+        direction_moved=direction,
+    )
 
 
 def parse_choice(user_text: str, actions: list[Action]) -> Action:
@@ -279,6 +446,26 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
     if mode == "combat" and (action.key.startswith("go_") or action.key == "search"):
         return error_result(f"cannot {action.key} in combat")
 
+    # ─── TZ-9: Encounter guard ─────────────────────────────
+    if mode != "combat" and hidden.get("combat") is None:
+        micro = hidden.get("micro_location")
+        micro_active = micro and micro.get("active")
+        if not micro_active and hidden.get("encounter_revealed") is True:
+            if _is_pending_encounter_valid(hidden):
+                # Only attack_* and go_away_to_* are allowed
+                if action.key.startswith("attack_"):
+                    return _execute_encounter_attack(
+                        action, hidden, visible, rng,
+                    )
+                if action.key.startswith("go_away_to_"):
+                    return _execute_go_away(
+                        action, hidden, visible, rng,
+                    )
+                return error_result("cannot take this action during encounter")
+            else:
+                # Stale encounter — clear and continue normal
+                _clear_pending_encounter(hidden)
+
     # Reset "scared" counter on any non-osmotret/search action.
     if action.key not in ("osmotret", "search"):
         hidden["last_action"] = action.key
@@ -314,6 +501,17 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
             if new_hp <= 0:
                 return ActionResult(events=events, game_over=True)
 
+        # TZ-9: handle pending encounter on osmotret
+        if _is_pending_encounter_valid(hidden):
+            hidden["encounter_revealed"] = True
+            pe = hidden["pending_encounter"]
+            preview = _preview_pending_enemies(pe.get("enemy_keys", []))
+            display_names = [e["display"] for e in preview]
+            events.append("You see: " + ", ".join(display_names) + ".")
+        elif hidden.get("pending_encounter") is not None:
+            # Pending exists but is stale — clear it
+            _clear_pending_encounter(hidden)
+
         report = sensory.format_sensory_report(visible)
         events.append(report)
         return ActionResult(events=events)
@@ -329,6 +527,8 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
             return error_result(f"source node {source!r} missing")
         hidden["current_node_id"] = source
         hidden["micro_location"] = {"active": False}
+        # TZ-9: clear stale pending after leaving micro-location source
+        _clear_pending_encounter(hidden)
         node = graph[source]
         visible["location"]["name"] = _resolve_location_name(
             node.get("type", ""), source,
@@ -367,6 +567,9 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
             _enter_new_node(graph, target, rng)
             node = graph[target]
 
+        # TZ-9: clear stale pending before checking for new encounter
+        _clear_pending_encounter(hidden)
+
         loc_type = node.get("type", "")
         visible["location"]["name"] = _resolve_location_name(
             loc_type, target,
@@ -400,6 +603,9 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
             next_id = node.get(direction)
         if not next_id or next_id not in graph:
             return error_result(f"no exit {direction}")
+
+        # TZ-9: clear stale pending on any valid movement attempt
+        _clear_pending_encounter(hidden)
 
         move_roll = rng()
         move_result = dice.resolve_movement(move_roll).result
@@ -763,6 +969,58 @@ def _enter_new_node(graph: dict, node_id: str, rng) -> None:
     )
 
 
+# ─── Pending encounter helpers (TZ-9) ─────────────────────────
+
+
+def _clear_pending_encounter(hidden: dict) -> None:
+    """Clear pending encounter state."""
+    hidden["pending_encounter"] = None
+    hidden["encounter_revealed"] = False
+
+
+def _is_pending_encounter_valid(hidden: dict) -> bool:
+    """Check if pending_encounter is active and valid for current location."""
+    pe = hidden.get("pending_encounter")
+    if not isinstance(pe, dict):
+        return False
+    if hidden.get("combat") is not None:
+        return False
+    if hidden.get("current_mode") == "combat":
+        return False
+    micro = hidden.get("micro_location")
+    if micro and micro.get("active"):
+        return False
+    enemy_keys = pe.get("enemy_keys")
+    if not enemy_keys:
+        return False
+    if pe.get("node_id") != hidden.get("current_node_id"):
+        return False
+    current_type = _current_location_type(hidden)
+    if current_type not in _ENCOUNTER_LOCATIONS:
+        return False
+    if current_type == _AMBUSH_LOCATION:
+        return False
+    return True
+
+
+def _preview_pending_enemies(enemy_keys: list[str]) -> list[dict]:
+    """Preview enemy IDs by running combat.start_combat as a dry run.
+
+    Returns list of dicts with keys: id, key, display.
+    If start_combat raises, returns empty list (bit encounter).
+    """
+    try:
+        preview = combat.start_combat(enemy_keys, "burt")
+        result: list[dict] = []
+        for e in preview.enemies:
+            template = ENEMIES.get(e.key)
+            display = template.name if template is not None else e.key
+            result.append({"id": e.id, "key": e.key, "display": display})
+        return result
+    except (ValueError, KeyError, TypeError):
+        return []
+
+
 def _start_combat(
     enemy_keys: list[str],
     initiative: str,
@@ -773,6 +1031,8 @@ def _start_combat(
     combat_state = combat.start_combat(enemy_keys, initiative)
     hidden["combat"] = combat_state.to_dict()
     hidden["current_mode"] = "combat"
+    # TZ-9: clear encounter state on any combat start
+    _clear_pending_encounter(hidden)
     burt = _build_burt_stats(visible, hidden)
     return sensory.format_combat_report(combat_state, burt)
 
@@ -785,9 +1045,8 @@ def _maybe_start_combat_on_enter(
 ) -> str | None:
     """Roll encounter on entering a location (O1: on-entry roll).
 
-    If combat is already active (hidden["combat"] is not None),
-    do NOT start a new combat — this prevents bugs on save/load
-    where movement during combat would overwrite the existing state.
+    TZ-9: non-ambush locations create pending_encounter instead of
+    starting combat immediately. Only thicket (ambush) starts combat.
     """
     if hidden.get("combat") is not None:
         return None
@@ -804,7 +1063,12 @@ def _maybe_start_combat_on_enter(
     if roll <= 2:
         enemies = spawn.spawn_random(spawn_key, rng(), rng())
         if enemies:
-            return _start_combat(enemies, "enemy", hidden, visible)
+            # TZ-9: create pending encounter instead of starting combat
+            hidden["pending_encounter"] = {
+                "node_id": hidden.get("current_node_id", "start"),
+                "enemy_keys": list(enemies),
+            }
+            hidden["encounter_revealed"] = False
     return None
 
 

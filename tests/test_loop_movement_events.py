@@ -96,9 +96,9 @@ class TestMovementEventsIntegration:
     def test_roll_5_does_not_apply_if_combat_started(self):
         """On-entry initiated combat -> loot NOT applied (order matters)."""
         st = make_state()
-        # south->forest(dangerous). rng: [move=5, ec=4, ed=4, et=4, es=4, enc=1]
-        rng = _seq_rng([5, 4, 4, 4, 4, 1])
-        result = execute_action(Action("go_south", "Go"), st, rng=rng)
+        # east->thicket(ambush). rng: [move=5, ec=4, ed=4, et=4, es=4, amb_type=1, amb_size=1]
+        rng = _seq_rng([5, 4, 4, 4, 4, 1, 1])
+        result = execute_action(Action("go_east", "Go"), st, rng=rng)
         assert st["hidden"]["current_mode"] == "combat"
         assert st["hidden"]["combat"] is not None
         assert st["visible"]["wallet"]["coin"] == 50

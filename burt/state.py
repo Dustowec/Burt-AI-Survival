@@ -153,6 +153,8 @@ def create_initial_state(
             "diary_written_today": False,
             "diary_skipped_today": False,
             "injected_day": 0,
+            "pending_encounter": None,
+            "encounter_revealed": False,
         },
     }
 

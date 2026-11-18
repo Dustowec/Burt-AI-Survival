@@ -111,6 +111,8 @@ def _ensure_runtime_fields(state: dict) -> None:
     hidden.setdefault("diary_skipped_today", False)
     hidden.setdefault("injected_day", 0)
     hidden.setdefault("dot_effects", [])
+    hidden.setdefault("pending_encounter", None)
+    hidden.setdefault("encounter_revealed", False)
 
 
 # ---------------------------------------------------------------------
@@ -578,6 +580,8 @@ def _do_sleep(state: dict) -> None:
         hidden["diary"] = None
         hidden["diary_skipped_today"] = True
     hidden["diary_written_today"] = False
+    hidden["pending_encounter"] = None
+    hidden["encounter_revealed"] = False
     logger.info("Slept. day=%d step=0", hidden["day"])
 
 

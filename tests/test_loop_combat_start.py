@@ -184,22 +184,28 @@ class TestOnEntryEncounter:
     # East -> thicket (ambush). rng seq:
     #   [move, count, dirs, type, size, ambush_type, ambush_size]
 
-    def test_forest_encounter_roll_1_starts_combat(self):
+    def test_forest_encounter_roll_1_creates_pending(self):
         st = make_state()
         # move=4, node rolls=4,4,4,4, encounter=1 -> attack,
         # spawn_random: type=4 (wolf), size=6 (1 wolf).
         rng = _seq_rng([4, 4, 4, 4, 4, 1, 4, 6])
         result = execute_action(Action("go_south", "Go"), st, rng=rng)
-        assert st["hidden"]["current_mode"] == "combat"
-        assert st["hidden"]["combat"] is not None
-        assert st["hidden"]["combat"]["initiative"] == "enemy"
-        assert any("[COMBAT]" in ev for ev in result.events)
+        # TZ-9: no immediate combat, pending_encounter created
+        assert st["hidden"]["current_mode"] == "exploring"
+        assert st["hidden"]["combat"] is None
+        pe = st["hidden"]["pending_encounter"]
+        assert isinstance(pe, dict)
+        assert pe["enemy_keys"] == ["wolf"]
+        assert st["hidden"]["encounter_revealed"] is False
 
-    def test_forest_encounter_roll_2_starts_combat(self):
+    def test_forest_encounter_roll_2_creates_pending(self):
         st = make_state()
         rng = _seq_rng([4, 4, 4, 4, 4, 2, 4, 6])
         execute_action(Action("go_south", "Go"), st, rng=rng)
-        assert st["hidden"]["current_mode"] == "combat"
+        # TZ-9: pending created, no immediate combat
+        assert st["hidden"]["current_mode"] == "exploring"
+        pe = st["hidden"]["pending_encounter"]
+        assert isinstance(pe, dict)
 
     def test_forest_encounter_roll_3_quiet(self):
         st = make_state()
@@ -293,18 +299,22 @@ class TestNewNodeGeneration:
 # ─── TestCombatReportInEvents ──────────────────────────────
 
 class TestCombatReportInEvents:
-    def test_events_contain_combat_report_on_start(self):
+    def test_pending_encounter_created_on_forest_entry(self):
         st = make_state()
         # South -> forest, encounter roll=1.
         rng = _seq_rng([4, 4, 4, 4, 4, 1, 4, 6])
         result = execute_action(Action("go_south", "Go"), st, rng=rng)
+        # TZ-9: no [COMBAT] in events, pending created
         combat_events = [ev for ev in result.events if "[COMBAT]" in ev]
-        assert len(combat_events) == 1
+        assert len(combat_events) == 0
+        pe = st["hidden"]["pending_encounter"]
+        assert isinstance(pe, dict)
 
     def test_combat_mode_persists_after_attack(self):
+        # Use thicket ambush (still starts combat immediately)
         st = make_state()
-        rng = _seq_rng([4, 4, 4, 4, 4, 1, 4, 6])
-        execute_action(Action("go_south", "Go"), st, rng=rng)
+        rng = _seq_rng([4, 4, 4, 4, 4, 1, 1])
+        execute_action(Action("go_east", "Go"), st, rng=rng)
         assert st["hidden"]["current_mode"] == "combat"
         # One round of block (rng=5: enemy misses) -> still combat.
         execute_action(Action("block", "Block"), st, rng=lambda: 5)
