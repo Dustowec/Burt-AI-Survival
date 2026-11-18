@@ -514,3 +514,95 @@ class TestMicroLocation:
         # flat 3-4: rng=2 → 2%2+3 = 3
         damage = calculate_micro_damage(event, lambda: 2)
         assert damage == 3
+
+
+# ---------------------------------------------------------------------
+# TZ-7: go_forward initializes unentered target node
+# ---------------------------------------------------------------------
+
+
+def _setup_micro_for_go_forward(st, target_id, target_type=None,
+                                target_entered=False):
+    """Set up micro_location pointing to target_id with back-edge south."""
+    g = st["hidden"]["location_graph"]
+    if target_id not in g:
+        g[target_id] = world._empty_node(target_type, target_entered)
+        g[target_id]["exits"]["south"] = "start"
+        g["start"]["exits"]["north"] = target_id
+    st["hidden"]["micro_location"] = {
+        "active": True,
+        "source_node": "start",
+        "target_node": target_id,
+        "direction": "north",
+        "event_type": "trap",
+        "damage": 0,
+    }
+    return st
+
+
+class TestGoForwardInitTZ7:
+    """TZ-7: go_forward must initialize unentered target nodes."""
+
+    def test_go_forward_initializes_unentered_target(self):
+        """Unentered target (type=None): _enter_new_node runs, type set,
+        exits > back-edge, name readable."""
+        st = _setup_micro_for_go_forward(
+            make_state(), "node_5", target_type=None, target_entered=False,
+        )
+        # _enter_new_node: 4 rng (count, dirs, type, size)
+        # _maybe_start_combat_on_enter: 1 rng (field encounter roll)
+        rng = _seq_rng([5, 4, 3, 4, 5])
+        # count=5 -> 4 exits (all directions)
+        # dirs=4 (ignored for 4 exits)
+        # type=3 -> field
+        # size=4 (ignored for type=3)
+        # encounter roll=5 (>2, no combat)
+        result = execute_action(Action("go_forward", "Go forward"), st, rng=rng)
+
+        node = st["hidden"]["location_graph"]["node_5"]
+        assert node["entered"] is True
+        assert node["type"] is not None
+        assert node["type"] != ""  # type set by _enter_new_node
+        # > 1 exit means init created new exits beyond the back-edge
+        live_exits = [d for d, t in node["exits"].items() if t]
+        assert len(live_exits) > 1
+        assert st["visible"]["location"]["name"] != "node_5"
+        assert st["visible"]["location"]["exits"] == live_exits
+
+    def test_go_forward_preserves_already_entered_target(self):
+        """Already entered target: no re-init, no crash, type/exits preserved."""
+        st = _setup_micro_for_go_forward(
+            make_state(), "node_5", target_type="village", target_entered=True,
+        )
+        # Pre-populate exits as if target was already visited
+        st["hidden"]["location_graph"]["node_5"]["exits"]["east"] = "node_77"
+        existing_exits = dict(st["hidden"]["location_graph"]["node_5"]["exits"])
+
+        # No rng expected (village not in _ENCOUNTER_LOCATIONS, entered=True)
+        rng = _seq_rng([0])  # dummy, never consumed
+        result = execute_action(Action("go_forward", "Go forward"), st, rng=rng)
+
+        node = st["hidden"]["location_graph"]["node_5"]
+        assert node["type"] == "village"  # not overwritten
+        assert node["entered"] is True
+        assert node["exits"] == existing_exits  # not re-generated
+
+    def test_go_forward_triggers_ambush_in_thicket(self):
+        """Unentered thicket target: _enter_new_node runs first (sets entered),
+        then _maybe_start_combat_on_enter fires ambush. Before fix, loc_type
+        was '' and ambush never triggered."""
+        st = _setup_micro_for_go_forward(
+            make_state(), "node_5", target_type="thicket", target_entered=False,
+        )
+        # _enter_new_node: 4 rng (count, dirs, type=preset skipped, size)
+        # spawn_ambush: 2 rng
+        rng = _seq_rng([3, 4, 3, 4, 3, 3])
+        # count=3 -> 3 exits, dirs=4
+        # type=3 (ignored, thicket preset), size=4
+        # spawn_ambush: rng()=3 -> wolf (<=3), rng()=3 -> pack_size=2
+        result = execute_action(Action("go_forward", "Go forward"), st, rng=rng)
+
+        assert st["hidden"]["current_mode"] == "combat"
+        assert st["hidden"]["combat"] is not None
+        combined = "\n".join(result.events)
+        assert "[COMBAT]" in combined

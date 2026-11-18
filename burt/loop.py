@@ -360,6 +360,13 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
         hidden["current_node_id"] = target
         hidden["micro_location"] = {"active": False}
         node = graph[target]
+
+        # Initialize unentered target (mirrors normal go_ handler).
+        # See HANDOFF: unify transitions into _transition_to (follow-up).
+        if not node.get("entered", False):
+            _enter_new_node(graph, target, rng)
+            node = graph[target]
+
         loc_type = node.get("type", "")
         visible["location"]["name"] = _resolve_location_name(
             loc_type, target,
