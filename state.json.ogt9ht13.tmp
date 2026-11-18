@@ -1,0 +1,204 @@
+{
+  "meta": {
+    "life": 1,
+    "day": 1,
+    "step": 3,
+    "session_uuid": "ac23929a-cfbf-4645-9fb1-23e67c3c209b",
+    "session_started": "2026-11-18T21:19:21.633367+00:00",
+    "config_hash": "v0.7.0"
+  },
+  "visible": {
+    "hp": 10,
+    "hp_max": 10,
+    "mp": 3,
+    "mp_max": 3,
+    "eat": true,
+    "sleep_counter": 0,
+    "date": "1 day",
+    "effects": [],
+    "location": {
+      "name": "Road",
+      "exits": [
+        "north",
+        "east",
+        "south",
+        "west"
+      ]
+    },
+    "inventory": [
+      {
+        "name": "bread",
+        "count": 1
+      },
+      {
+        "name": "water",
+        "count": 1
+      }
+    ],
+    "wallet": {
+      "coin": 50
+    },
+    "skills_visible": [],
+    "state": "exploring"
+  },
+  "hidden": {
+    "hp_raw": 10,
+    "mp_raw": 3,
+    "hunger_death_at": [
+      8,
+      18
+    ],
+    "sleep_forced_at": 20,
+    "effects_detail": [],
+    "dot_effects": [],
+    "reputation": {
+      "merchant": 0,
+      "guard": 0,
+      "peasant": 0,
+      "elder": 0,
+      "tavernkeeper": 0,
+      "blacksmith": 0,
+      "fisherman": 0,
+      "child": 0,
+      "veteran": 0,
+      "cleric": 0,
+      "necromancer": 0,
+      "mage": 0
+    },
+    "skills_raw": [],
+    "quests_raw": [],
+    "location_graph": {
+      "start": {
+        "type": "crossroads",
+        "entered": true,
+        "exits": {
+          "north": "node_1",
+          "east": "node_2",
+          "south": "node_3",
+          "west": "node_4"
+        }
+      },
+      "node_1": {
+        "type": "road",
+        "entered": true,
+        "exits": {
+          "north": "node_5",
+          "east": "node_6",
+          "south": "start",
+          "west": "node_7"
+        }
+      },
+      "node_2": {
+        "type": "thicket",
+        "entered": false,
+        "exits": {
+          "north": null,
+          "east": null,
+          "south": null,
+          "west": "start"
+        }
+      },
+      "node_3": {
+        "type": "forest",
+        "entered": false,
+        "exits": {
+          "north": "start",
+          "east": null,
+          "south": null,
+          "west": null
+        }
+      },
+      "node_4": {
+        "type": "river",
+        "entered": false,
+        "exits": {
+          "north": null,
+          "east": "start",
+          "south": null,
+          "west": null
+        }
+      },
+      "node_5": {
+        "type": null,
+        "entered": false,
+        "exits": {
+          "north": null,
+          "east": null,
+          "south": "node_1",
+          "west": null
+        }
+      },
+      "node_6": {
+        "type": null,
+        "entered": false,
+        "exits": {
+          "north": null,
+          "east": null,
+          "south": null,
+          "west": "node_1"
+        }
+      },
+      "node_7": {
+        "type": null,
+        "entered": false,
+        "exits": {
+          "north": null,
+          "east": "node_1",
+          "south": null,
+          "west": null
+        }
+      }
+    },
+    "current_node_id": "node_1",
+    "npcs_here": [],
+    "events_here": [],
+    "has_room_tonight": false,
+    "current_mode": "exploring",
+    "combat": null,
+    "last_action": "osmotret",
+    "same_action_count": 1,
+    "dice_log_last": [],
+    "pending_events": [],
+    "spells": {
+      "element": null,
+      "alignment": null
+    },
+    "has_staff": false,
+    "teacher_found": false,
+    "trained_by": [],
+    "diary": null,
+    "day_log": [
+      {
+        "step": 0,
+        "location": "Crossroads",
+        "llm_message": "My stomach pulls at me, and the crossroads sits empty in every direction.\n\nCHOICE: 6",
+        "action": "eat_food"
+      },
+      {
+        "step": 1,
+        "location": "Crossroads",
+        "llm_message": "The bread sits quiet in my belly. The road waits.\n\nCHOICE: 1",
+        "action": "go_north"
+      },
+      {
+        "step": 2,
+        "location": "Road",
+        "llm_message": "The road stretches bare, dust under my feet. Nothing here I know yet.\n\nCHOICE: 0",
+        "action": "osmotret"
+      }
+    ],
+    "diary_written_today": false,
+    "diary_skipped_today": false,
+    "injected_day": 1,
+    "pending_encounter": null,
+    "encounter_revealed": false,
+    "step": 3,
+    "day": 1,
+    "resurrection_used_today": false,
+    "micro_location": {
+      "active": false
+    },
+    "role_quest_block": {},
+    "deceit_penalty_until": {}
+  }
+}

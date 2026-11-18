@@ -1028,6 +1028,9 @@ def _start_combat(
     visible: dict,
 ) -> str:
     """Start combat (§23). Returns combat report."""
+    # TZ-10: lvl < 5 -> одиночный монстр, не стая.
+    if visible.get("level", 1) < 5 and len(enemy_keys) > 1:
+        enemy_keys = enemy_keys[:1]
     combat_state = combat.start_combat(enemy_keys, initiative)
     hidden["combat"] = combat_state.to_dict()
     hidden["current_mode"] = "combat"
@@ -1063,10 +1066,14 @@ def _maybe_start_combat_on_enter(
     if roll <= 2:
         enemies = spawn.spawn_random(spawn_key, rng(), rng())
         if enemies:
+            enemy_keys = list(enemies)
+            # TZ-10: lvl < 5 -> capped to single enemy, matching combat.
+            if visible.get("level", 1) < 5 and len(enemy_keys) > 1:
+                enemy_keys = enemy_keys[:1]
             # TZ-9: create pending encounter instead of starting combat
             hidden["pending_encounter"] = {
                 "node_id": hidden.get("current_node_id", "start"),
-                "enemy_keys": list(enemies),
+                "enemy_keys": enemy_keys,
             }
             hidden["encounter_revealed"] = False
     return None

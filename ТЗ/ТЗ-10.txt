@@ -1,0 +1,73 @@
+TZ-10: cap spawn to 1 enemy when Burt level < 5
+
+==========================================================
+CONTEXT
+==========================================================
+На низких уровнях Burt (lvl < 5) толпа волков/гоблинов убивает
+сразу. По ТЗ: пока lvl < 5, спавнить только 1 монстра (не стаю).
+После lvl 5 — действующая схема.
+
+Единая точка: combat.start_combat принимает enemy_keys (list[str]).
+Проще всего обрезать в loop._start_combat (там visible доступен).
+
+Правки в burt/loop.py и tests/.
+НЕ ТРОГАТЬ: spawn.py, combat.py.
+
+==========================================================
+FIX 1: burt/loop.py — _start_combat
+==========================================================
+В начале функции (до combat.start_combat):
+
+  def _start_combat(enemy_keys, initiative, hidden, visible):
+      # TZ-10: lvl < 5 -> одиночный монстр, не стая.
+      if visible.get("level", 1) < 5 and len(enemy_keys) > 1:
+          enemy_keys = enemy_keys[:1]
+      combat_state = combat.start_combat(enemy_keys, initiative)
+      ...
+
+level берётся из visible. Если level отсутствует — default 1 (как
+везде в коде).
+
+==========================================================
+TESTS: tests/test_loop_combat_start.py (дополнить)
+==========================================================
+1. test_spawn_capped_at_level_1
+   - visible["level"]=1, enemy_keys=["wolf", "wolf", "wolf"]
+   - _start_combat -> combat.enemies имеет 1 wolf
+
+2. test_spawn_capped_at_level_4
+   - visible["level"]=4, enemy_keys=["goblin", "goblin", "goblin"]
+   - _start_combat -> 1 goblin
+
+3. test_spawn_uncapped_at_level_5
+   - visible["level"]=5, enemy_keys=["wolf", "wolf", "wolf"]
+   - _start_combat -> 3 wolves
+
+4. test_spawn_capped_preserves_first
+   - enemy_keys=["wolf", "goblin", "wolf"], level=1
+   - _start_combat -> 1 wolf (первый, не смешанный)
+
+5. test_spawn_single_enemy_unchanged
+   - enemy_keys=["wolf"], level=1
+   - _start_combat -> 1 wolf
+
+6. test_spawn_empty_level_uses_default
+   - visible без "level", enemy_keys=["wolf", "wolf"]
+   - _start_combat -> 1 wolf (default level=1 < 5)
+
+==========================================================
+FORBIDDEN
+==========================================================
+- НЕ ТРОГАТЬ spawn.spawn_random, spawn.spawn_ambush
+- НЕ МЕНЯТЬ _start_combat сигнатуру (enemy_keys, initiative, hidden, visible)
+- НЕ ТРОГАТЬ combat.start_combat
+
+==========================================================
+VERIFY
+==========================================================
+  .\.venv\Scripts\pytest.exe tests/ -q
+  # +6 тестов
+
+  python main.py --new --max-steps 40 --log-level INFO
+  # При lvl=1 и ambush в thicket — 1 волк, не 3.
+  # После lvl=5 (если поднять в state.json вручную) — 3.

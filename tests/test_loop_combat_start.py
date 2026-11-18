@@ -118,6 +118,86 @@ class TestStartCombat:
             _start_combat([], "enemy", st["hidden"], st["visible"])
 
 
+class TestStartCombatTz10:
+    """TZ-10: cap spawn to 1 enemy while Burt level < 5."""
+
+    def _run(self, visible_level, enemy_keys):
+        st = make_state()
+        if visible_level is not None:
+            st["visible"]["level"] = visible_level
+        _start_combat(enemy_keys, "enemy", st["hidden"], st["visible"])
+        return st["hidden"]["combat"]["enemies"]
+
+    def test_spawn_capped_at_level_1(self):
+        enemies = self._run(1, ["wolf", "wolf", "wolf"])
+        assert len(enemies) == 1
+        assert enemies[0]["key"] == "wolf"
+
+    def test_spawn_capped_at_level_4(self):
+        enemies = self._run(4, ["goblin", "goblin", "goblin"])
+        assert len(enemies) == 1
+        assert enemies[0]["key"] == "goblin"
+
+    def test_spawn_uncapped_at_level_5(self):
+        enemies = self._run(5, ["wolf", "wolf", "wolf"])
+        assert len(enemies) == 3
+        assert all(e["key"] == "wolf" for e in enemies)
+
+    def test_spawn_capped_preserves_first(self):
+        enemies = self._run(1, ["wolf", "goblin", "wolf"])
+        assert len(enemies) == 1
+        assert enemies[0]["key"] == "wolf"
+
+    def test_spawn_single_enemy_unchanged(self):
+        enemies = self._run(1, ["wolf"])
+        assert len(enemies) == 1
+        assert enemies[0]["key"] == "wolf"
+
+    def test_spawn_empty_level_uses_default(self):
+        # no "level" in visible -> default 1 < 5 -> capped to 1
+        enemies = self._run(None, ["wolf", "wolf"])
+        assert len(enemies) == 1
+        assert enemies[0]["key"] == "wolf"
+
+
+class TestTz10EncounterConsistency:
+    """TZ-10: reveal/menu/combat must agree (single enemy at lvl<5)."""
+
+    def test_pending_encounter_capped_at_level_1(self):
+        st = make_state()
+        st["visible"]["level"] = 1
+        # forest roll=1 -> spawn_random: type=4 (wolf), size=2 (pack of 2 wolves).
+        rng = _seq_rng([1, 4, 2])
+        result = _maybe_start_combat_on_enter(
+            "forest", st["hidden"], st["visible"], rng,
+        )
+        assert result is None
+        pe = st["hidden"]["pending_encounter"]
+        assert isinstance(pe, dict)
+        assert pe["enemy_keys"] == ["wolf"]  # capped to 1
+
+    def test_ambush_capped_at_level_1(self):
+        st = make_state()
+        st["visible"]["level"] = 1
+        # ambush: type=1 (wolf), size=1 (3 wolves) -> capped to 1 in combat.
+        rng = _seq_rng([1, 1])
+        _maybe_start_combat_on_enter(
+            "thicket", st["hidden"], st["visible"], rng,
+        )
+        assert st["hidden"]["current_mode"] == "combat"
+        assert len(st["hidden"]["combat"]["enemies"]) == 1
+        assert st["hidden"]["combat"]["enemies"][0]["key"] == "wolf"
+
+    def test_ambush_uncapped_at_level_5(self):
+        st = make_state()
+        st["visible"]["level"] = 5
+        rng = _seq_rng([1, 1])
+        _maybe_start_combat_on_enter(
+            "thicket", st["hidden"], st["visible"], rng,
+        )
+        assert len(st["hidden"]["combat"]["enemies"]) == 3
+
+
 # ─── TestMovementRoll ──────────────────────────────────────
 
 class TestMovementRoll:
@@ -222,6 +302,8 @@ class TestOnEntryEncounter:
 
     def test_thicket_always_ambush(self):
         st = make_state()
+        # TZ-10: level 5 -> uncapped, keep full pack (thicket ambush mechanics).
+        st["visible"]["level"] = 5
         # move=4, node rolls=4,4,4,4, ambush: type=1 (wolf), size=1 (3 wolves).
         rng = _seq_rng([4, 4, 4, 4, 4, 1, 1])
         result = execute_action(Action("go_east", "Go"), st, rng=rng)
