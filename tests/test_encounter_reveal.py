@@ -147,7 +147,7 @@ class TestOnEntryEncounter:
         assert h["current_mode"] == "combat"
         assert h["combat"] is not None
         assert h["combat"]["initiative"] == "enemy"
-        assert h["combat"]["free_strike_done"] is False
+        assert h["combat"]["free_strike_done"] is True
         assert h["pending_encounter"] is None
         assert h["encounter_revealed"] is False
 

@@ -176,33 +176,36 @@ class TestCombatOrderIntegration:
                 "step": 0, "day": 1,
             },
         }
-        _start_combat(enemy_keys, initiative, state["hidden"], state["visible"])
+        _start_combat(enemy_keys, initiative, state["hidden"], state["visible"], _cycle_rng([1]))
         return state
 
     def test_loop_execute_combat_preserves_order(self):
-        """User-facing events: Ambush! → enemy → Burt → report."""
+        """User-facing events: Burt → enemy → report (ambush was on prior step)."""
         st = self._make_combat_state(["wolf"], "enemy")
         result = execute_action(
             Action("attack_wolf_1", "Attack"), st, rng=_cycle_rng([4]),
         )
 
         cats = _event_categories(result.events)
+        # Ambush now happens on the prior step (in _start_combat),
+        # so the first battle event in this step is Burt's action.
         first = _first_battle_event(cats)
-        assert first == "ambush", (
-            f"First user event should be 'Ambush!'. "
+        assert first in ("burt", "enemy"), (
+            f"First user event should be 'Burt' or 'enemy'. "
+            f"Ambush was already resolved on the prior step. "
             f"Events: {result.events}"
         )
 
-        # Enemy event before Burt event
-        ambush_idx = cats.index("ambush")
+        # Burt event before Enemy event (new resolve_round order: Burt acts first)
+        enemy_indices = [i for i, c in enumerate(cats) if c == "enemy"]
         burt_indices = [i for i, c in enumerate(cats) if c == "burt"]
-        if burt_indices:
-            first_burt_idx = burt_indices[0]
-            enemy_before = any(
-                cats[i] == "enemy" for i in range(ambush_idx + 1, first_burt_idx)
+        if enemy_indices and burt_indices:
+            first_enemy_idx = enemy_indices[0]
+            burt_before = any(
+                i < first_enemy_idx for i in burt_indices
             )
-            assert enemy_before, (
-                f"Enemy event should appear before Burt in user events. "
+            assert burt_before, (
+                f"Burt event should appear before enemy in user events. "
                 f"Cats: {cats}. Events: {result.events}"
             )
 

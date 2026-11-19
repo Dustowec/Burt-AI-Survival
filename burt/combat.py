@@ -1,14 +1,23 @@
 """
 Combat — §23 spec v0.7.0.
 
-Round order:
-  1. Free strike (enemy initiative, first round):
-     each living enemy strikes by attack table. No block.
-  2. Burt's turn: attack / block / flee.
-  3. Enemy turns in order:
+Combat opening (before any menu is shown):
+  0. Free strike (enemy initiative only): each living enemy strikes by
+     attack table, no block. Resolved by open_combat() /
+     resolve_free_strike() at the moment combat starts, so "Ambush!"
+     and the enemy hits are reported on the SAME step that opened
+     combat — never after Burt has already picked an action.
+
+Round order (resolve_round, one call = one Burt action + enemy answers):
+  1. Burt's turn: attack / block / flee / cast.
+  2. Enemy turns in order:
      - attack and flee: enemy attack table, own roll;
      - block: block table, own roll, counter on 6 → same enemy.
-  4. Round++.
+  3. Round++.
+
+resolve_round() never opens combat: it assumes the free strike has
+already been resolved. If it has not (legacy caller), it resolves it
+first as a fallback and marks that in events_tech.
 
 Pure core: no I/O, no asyncio, no LLM.
 Dice are rolled by rng — a function returning 1..6.
@@ -533,6 +542,73 @@ def _enemy_turn(
     )
 
 
+# ─── Combat opening (free strike) ──────────────────────────
+
+def resolve_free_strike(
+    combat: CombatState,
+    burt: BurtStats,
+    rng: Rng,
+) -> RoundResult:
+    """Step 0 of combat: enemy free strike on ambush (§23).
+
+    The orchestrator MUST call this right after start_combat(), on the
+    same step where combat was triggered — before printing the combat
+    menu and before the LLM narration. That way the step log reads
+    "[COMBAT] / Ambush! / wolf hits you." and the following Burt action
+    produces only its own exchange.
+
+    No round is consumed: combat.round stays 1 and it is Burt's turn.
+    Idempotent — a no-op when initiative is Burt's or the free strike
+    is already done, so calling it twice cannot deal damage twice.
+    Consumes exactly the same rng rolls as the old inline free strike.
+    """
+    events_llm: list[str] = []
+    events_tech: list[str] = []
+
+    if not combat.active or combat.free_strike_done:
+        return RoundResult(combat=combat, burt=burt, outcome="ongoing")
+
+    events_llm.append("Ambush!")
+    for enemy in _alive(combat):
+        if burt.hp <= 0:
+            break
+        burt = _enemy_turn(
+            enemy, burt, rng, block_roll=None,
+            events_llm=events_llm, events_tech=events_tech,
+        )
+    combat.free_strike_done = True
+
+    if burt.hp <= 0:
+        combat.active = False
+        return RoundResult(
+            combat=combat, burt=burt,
+            events_llm=events_llm, events_tech=events_tech,
+            outcome="burt_died",
+        )
+
+    return RoundResult(
+        combat=combat, burt=burt,
+        events_llm=events_llm, events_tech=events_tech,
+        outcome="ongoing",
+    )
+
+
+def open_combat(
+    enemy_keys: list[str],
+    initiative: str,
+    burt: BurtStats,
+    rng: Rng,
+) -> RoundResult:
+    """start_combat() + free strike in one call.
+
+    Convenience entry point for the orchestrator: emit "[COMBAT]", then
+    result.events_llm, then handle result.outcome ("burt_died" means the
+    ambush killed Burt and no menu must be shown), then inject the menu.
+    """
+    combat = start_combat(enemy_keys, initiative)
+    return resolve_free_strike(combat, burt, rng)
+
+
 # ─── Round ─────────────────────────────────────────────────
 
 def resolve_round(
@@ -548,19 +624,19 @@ def resolve_round(
     if not combat.active:
         return RoundResult(combat=combat, burt=burt, outcome="ongoing")
 
-    # Free strike.
+    # Free strike belongs to combat opening (resolve_free_strike), which
+    # the orchestrator calls before the menu. Fallback for legacy callers
+    # only: keeps the old behaviour instead of silently losing the ambush.
     if combat.initiative == "enemy" and not combat.free_strike_done:
-        events_llm.append("Ambush!")
-        for enemy in _alive(combat):
-            if burt.hp <= 0:
-                break
-            burt = _enemy_turn(
-                enemy, burt, rng, block_roll=None,
-                events_llm=events_llm, events_tech=events_tech,
-            )
-        combat.free_strike_done = True
-        if burt.hp <= 0:
-            combat.active = False
+        events_tech.append(
+            "free strike fallback: combat was not opened via "
+            "open_combat/resolve_free_strike"
+        )
+        opening = resolve_free_strike(combat, burt, rng)
+        burt = opening.burt
+        events_llm.extend(opening.events_llm)
+        events_tech.extend(opening.events_tech)
+        if opening.outcome == "burt_died":
             return RoundResult(
                 combat=combat, burt=burt,
                 events_llm=events_llm, events_tech=events_tech,

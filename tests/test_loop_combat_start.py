@@ -18,6 +18,7 @@ from burt.loop import (
     Action, ActionResult, build_menu, execute_action,
     _start_combat, _maybe_start_combat_on_enter,
     _enter_new_node, _handle_movement_failure,
+    CombatStart,
 )
 from burt.combat import start_combat
 from burt.bestiary import ENEMIES
@@ -81,41 +82,42 @@ def _start_node_exits(st):
 class TestStartCombat:
     def test_writes_hidden_combat(self):
         st = make_state()
-        _start_combat(["wolf"], "enemy", st["hidden"], st["visible"])
+        _start_combat(["wolf"], "enemy", st["hidden"], st["visible"], _seq_rng([1]))
         assert st["hidden"]["combat"] is not None
         assert st["hidden"]["combat"]["enemies"][0]["key"] == "wolf"
 
     def test_sets_current_mode_combat(self):
         st = make_state()
-        _start_combat(["wolf"], "enemy", st["hidden"], st["visible"])
+        _start_combat(["wolf"], "enemy", st["hidden"], st["visible"], _seq_rng([1]))
         assert st["hidden"]["current_mode"] == "combat"
 
     def test_returns_combat_report(self):
         st = make_state()
-        report = _start_combat(
-            ["wolf"], "enemy", st["hidden"], st["visible"],
+        result = _start_combat(
+            ["wolf"], "enemy", st["hidden"], st["visible"], _seq_rng([1]),
         )
-        assert isinstance(report, str)
-        assert "[COMBAT]" in report
-        assert "wolf" in report.lower()
+        assert isinstance(result, CombatStart)
+        combined = "\n".join(result.events)
+        assert "[COMBAT]" in combined
+        assert "wolf" in combined.lower()
 
     def test_initiative_enemy_preserved(self):
         st = make_state()
-        _start_combat(["wolf"], "enemy", st["hidden"], st["visible"])
+        _start_combat(["wolf"], "enemy", st["hidden"], st["visible"], _seq_rng([1]))
         assert st["hidden"]["combat"]["initiative"] == "enemy"
-        # enemy initiative -> free strike not yet done.
-        assert st["hidden"]["combat"]["free_strike_done"] is False
+        # enemy initiative -> free strike already resolved in _start_combat.
+        assert st["hidden"]["combat"]["free_strike_done"] is True
 
     def test_initiative_burt_preserved(self):
         st = make_state()
-        _start_combat(["wolf"], "burt", st["hidden"], st["visible"])
+        _start_combat(["wolf"], "burt", st["hidden"], st["visible"], _seq_rng([1]))
         assert st["hidden"]["combat"]["initiative"] == "burt"
         assert st["hidden"]["combat"]["free_strike_done"] is True
 
     def test_empty_enemy_keys_raises(self):
         st = make_state()
         with pytest.raises(ValueError):
-            _start_combat([], "enemy", st["hidden"], st["visible"])
+            _start_combat([], "enemy", st["hidden"], st["visible"], _seq_rng([1]))
 
 
 class TestStartCombatTz10:
@@ -125,7 +127,7 @@ class TestStartCombatTz10:
         st = make_state()
         if visible_level is not None:
             st["visible"]["level"] = visible_level
-        _start_combat(enemy_keys, "enemy", st["hidden"], st["visible"])
+        _start_combat(enemy_keys, "enemy", st["hidden"], st["visible"], _seq_rng([1]))
         return st["hidden"]["combat"]["enemies"]
 
     def test_spawn_capped_at_level_1(self):

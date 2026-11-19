@@ -3,6 +3,9 @@
 Synchronous game-loop core: build_menu, parse_choice, execute_action.
 
 Combat delegates to burt.combat.resolve_round (§23):
+- combat opening (ambush free strike) is resolved in _start_combat via
+  combat.resolve_free_strike, on the very step that triggered combat,
+  before the menu is built and before the LLM narrates;
 - CombatState is stored as dict in hidden["combat"];
 - BurtStats is assembled from visible + hidden["spells"];
 - after each round, hidden["combat"] is written back (or None on end);
@@ -54,6 +57,13 @@ class ActionResult:
     direction_moved: str | None = None
 
 
+@dataclass
+class CombatStart:
+    """Events emitted when combat opens, ambush free strike included."""
+    events: list[str] = field(default_factory=list)
+    game_over: bool = False
+
+
 # Location name mapping
 _LOCATION_NAMES = {
     'crossroads': 'Crossroads',
@@ -83,6 +93,7 @@ _ENCOUNTER_LOCATIONS = {
     "swamp": "swamp",
 }
 _AMBUSH_LOCATION = "thicket"  # §32: ambush at thicket
+_COMBAT_HEADER = "[COMBAT]"  # first line of sensory.format_combat_report
 
 # П.1: Словарь синонимов для парсинга текста.
 _ACTION_SYNONYMS = {
@@ -256,8 +267,8 @@ def _execute_encounter_attack(
     # Start combat with Burt initiative
     _clear_pending_encounter(hidden)
     hidden["step"] = hidden.get("step", 0) + 1
-    combat_report = _start_combat(enemy_keys, "burt", hidden, visible)
-    return ActionResult(events=[combat_report])
+    started = _start_combat(enemy_keys, "burt", hidden, visible, rng)
+    return ActionResult(events=started.events, game_over=started.game_over)
 
 
 def _execute_go_away(
@@ -315,12 +326,13 @@ def _execute_go_away(
 
     hidden["step"] = hidden.get("step", 0) + 1
 
-    combat_report = _maybe_start_combat_on_enter(
+    started = _maybe_start_combat_on_enter(
         loc_type, hidden, visible, rng,
     )
-    if combat_report is not None:
+    if started is not None:
         return ActionResult(
-            events=[combat_report],
+            events=started.events,
+            game_over=started.game_over,
             direction_moved=direction,
         )
 
@@ -579,11 +591,13 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
                 d for d, t in node["exits"].items() if t
             ]
         hidden["step"] = hidden.get("step", 0) + 1
-        combat_report = _maybe_start_combat_on_enter(
+        started = _maybe_start_combat_on_enter(
             loc_type, hidden, visible, rng,
         )
-        if combat_report is not None:
-            return ActionResult(events=[combat_report])
+        if started is not None:
+            return ActionResult(
+                events=started.events, game_over=started.game_over,
+            )
         return ActionResult(
             events=[sensory.format_sensory_report(visible)],
         )
@@ -636,12 +650,13 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
 
         hidden["step"] = hidden.get("step", 0) + 1
 
-        combat_report = _maybe_start_combat_on_enter(
+        started = _maybe_start_combat_on_enter(
             loc_type, hidden, visible, rng,
         )
-        if combat_report is not None:
+        if started is not None:
             return ActionResult(
-                events=[combat_report],
+                events=started.events,
+                game_over=started.game_over,
                 direction_moved=direction,
             )
 
@@ -1021,23 +1036,74 @@ def _preview_pending_enemies(enemy_keys: list[str]) -> list[dict]:
         return []
 
 
+def _combat_opening_events(report: str, free_strike: list[str]) -> list[str]:
+    """Order the opening step: [COMBAT] header, ambush events, enemy menu.
+
+    Keeps the ambush on the step that opened combat instead of leaking it
+    into the first resolve_round. Falls back to "ambush first" if the
+    report header ever changes in sensory.
+    """
+    if not free_strike:
+        return [report]
+    header, _sep, body = report.partition("\n")
+    if header.strip() != _COMBAT_HEADER:
+        return list(free_strike) + [report]
+    events = [header] + list(free_strike)
+    if body:
+        events.append(body)
+    return events
+
+
 def _start_combat(
     enemy_keys: list[str],
     initiative: str,
     hidden: dict,
     visible: dict,
-) -> str:
-    """Start combat (§23). Returns combat report."""
-    # TZ-10: lvl < 5 -> одиночный монстр, не стая.
+    rng,
+) -> CombatStart:
+    """Start combat (§23) and resolve the ambush free strike right here.
+
+    The free strike is step 0 of combat opening, not part of round 1:
+    it is resolved on the step that triggered combat, so the log reads
+    "[COMBAT] / Ambush! / wolf hits you." before the menu is injected.
+    HP/MP are synced immediately, so the combat report and the LLM prompt
+    already reflect the damage taken. No round is consumed.
+    """
+    # TZ-10: lvl < 5 -> single monster, not a pack.
     if visible.get("level", 1) < 5 and len(enemy_keys) > 1:
         enemy_keys = enemy_keys[:1]
+
     combat_state = combat.start_combat(enemy_keys, initiative)
-    hidden["combat"] = combat_state.to_dict()
-    hidden["current_mode"] = "combat"
+    burt = _build_burt_stats(visible, hidden)
+
+    # §23 step 0: enemy initiative -> free strike, no block allowed.
+    opening = combat.resolve_free_strike(combat_state, burt, rng)
+    combat_state = opening.combat
+    burt = opening.burt
+
+    visible["hp"] = max(0, burt.hp)
+    visible["mp"] = max(0, burt.mp)
+    hidden["hp_raw"] = visible["hp"]
+    hidden["mp_raw"] = visible["mp"]
+
     # TZ-9: clear encounter state on any combat start
     _clear_pending_encounter(hidden)
-    burt = _build_burt_stats(visible, hidden)
-    return sensory.format_combat_report(combat_state, burt)
+
+    if opening.outcome == "burt_died":
+        # Ambush killed Burt: no combat menu, death on this same step.
+        hidden["combat"] = None
+        hidden["current_mode"] = "exploring"
+        return CombatStart(
+            events=[_COMBAT_HEADER] + list(opening.events_llm),
+            game_over=True,
+        )
+
+    hidden["combat"] = combat_state.to_dict()
+    hidden["current_mode"] = "combat"
+    report = sensory.format_combat_report(combat_state, burt)
+    return CombatStart(
+        events=_combat_opening_events(report, opening.events_llm),
+    )
 
 
 def _maybe_start_combat_on_enter(
@@ -1045,7 +1111,7 @@ def _maybe_start_combat_on_enter(
     hidden: dict,
     visible: dict,
     rng,
-) -> str | None:
+) -> CombatStart | None:
     """Roll encounter on entering a location (O1: on-entry roll).
 
     TZ-9: non-ambush locations create pending_encounter instead of
@@ -1056,7 +1122,7 @@ def _maybe_start_combat_on_enter(
 
     if location_type == _AMBUSH_LOCATION:
         enemies = spawn.spawn_ambush(rng(), rng())
-        return _start_combat(enemies, "enemy", hidden, visible)
+        return _start_combat(enemies, "enemy", hidden, visible, rng)
 
     spawn_key = _ENCOUNTER_LOCATIONS.get(location_type)
     if spawn_key is None:
@@ -1195,11 +1261,13 @@ def _handle_movement_failure(
         if spawn_key is not None:
             enemies = spawn.spawn_random(spawn_key, rng(), rng())
             if enemies:
-                combat_report = _start_combat(
-                    enemies, "enemy", hidden, visible,
+                started = _start_combat(
+                    enemies, "enemy", hidden, visible, rng,
                 )
-                events_list.append(combat_report)
-                return ActionResult(events=events_list)
+                events_list.extend(started.events)
+                return ActionResult(
+                    events=events_list, game_over=started.game_over,
+                )
 
     return ActionResult(events=events_list)
 
