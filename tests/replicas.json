@@ -1,0 +1,954 @@
+{
+  "roles": {
+    "elder": {
+      "intro": [
+        "I am the elder of this village.",
+        "What brings you here, wanderer?",
+        "Speak. Time is precious."
+      ],
+      "fail_angry": [
+        "Guards! Remove this one!",
+        "One more word and I'll have you thrown out of the village!",
+        "You forget yourself. I am the law here."
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now. I have much to do.",
+        "Move along. Don't linger."
+      ],
+      "neutral": [
+        "Maybe I do know.",
+        "Things happen here. Not everything is for outsiders' ears.",
+        "First tell me why you want to know."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Good. Listen carefully."
+      ],
+      "success_bonus": [
+        "Here, take this. For a kind word.",
+        "I'll tell you more. Just between us.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "charm_fail": [
+        "Don't flatter me. I'm too old for that.",
+        "I don't like flatterers.",
+        "Save it. Get to the point."
+      ],
+      "charm_neutral": [
+        "Well, well.",
+        "Fine, fine.",
+        "Oh, you."
+      ],
+      "charm_success": [
+        "Oh, you're clever. Fine, I'm listening.",
+        "You know how to talk. I'll tell you.",
+        "How could I refuse someone like that."
+      ],
+      "threat_fail": [
+        "Me?! In my own village?! Guards!",
+        "Who are you to threaten me?!",
+        "Get out before you regret it!"
+      ],
+      "threat_neutral": [
+        "Easy now, easy.",
+        "Don't push your luck.",
+        "I'm not afraid of you."
+      ],
+      "threat_success": [
+        "Fine, fine. Keep it quiet.",
+        "Alright. Just leave.",
+        "We'll make a deal. Not here."
+      ],
+      "trade_fail": [
+        "I won't give it away for nothing.",
+        "The price is what I said.",
+        "I don't haggle with strangers."
+      ],
+      "trade_neutral": [
+        "Fine, so be it.",
+        "Take it, just don't linger.",
+        "Consider it settled."
+      ],
+      "trade_success": [
+        "Eh, take it cheaper. A kind word from you is enough.",
+        "For you — a fair price.",
+        "Fine, I'll give in. Just for today."
+      ],
+      "bribe_fail": [
+        "Me?! A bribe?!",
+        "Put that away before someone sees.",
+        "I'm not for sale."
+      ],
+      "bribe_neutral": [
+        "Not enough.",
+        "Add more and we'll talk.",
+        "Not for free."
+      ],
+      "bribe_success": [
+        "Fine. I'm listening.",
+        "I didn't see you.",
+        "Keep it quiet. Walls have ears."
+      ],
+      "quest_none": [
+        "I have no work for you.",
+        "No work. Go.",
+        "Not now."
+      ],
+      "quest_give": [
+        "There is one matter. Listen.",
+        "Hm. Maybe you'll do.",
+        "There is. But not for chatterboxes."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ]
+    },
+    "peasant": {
+      "intro": [
+        "What do you want?",
+        "What is it?",
+        "Well?"
+      ],
+      "fail_angry": [
+        "Get lost before I grab my pitchfork!",
+        "One more word and I'll set the dogs on you.",
+        "Get out before you regret it."
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now.",
+        "Move along."
+      ],
+      "neutral": [
+        "Maybe I know. Maybe not.",
+        "I heard a thing or two, but I don't remember.",
+        "Things happen here."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Well, since you ask."
+      ],
+      "success_bonus": [
+        "Here, take a coin. For a kind word.",
+        "I heard about a place. Go take a look.",
+        "Take some bread, you look hungry."
+      ],
+      "threat_fail": [
+        "Don't scare me, I've been scared before.",
+        "Leave or I'll scream.",
+        "What will you do to me, fool?"
+      ],
+      "threat_neutral": [
+        "Easy now, easy.",
+        "Why are you waving your arms?",
+        "What do you want?"
+      ],
+      "threat_success": [
+        "Fine, fine. Don't hit.",
+        "I'll tell you. Just don't touch me.",
+        "Take what you want, just leave."
+      ]
+    },
+    "peasant_woman": {
+      "intro": [
+        "Greetings to you, wanderer.",
+        "Hello, kind man.",
+        "What do you want, dear?"
+      ],
+      "fail_angry": [
+        "Hey! Get out, you scoundrel!",
+        "How dare you!",
+        "Leave or I'll call for help!"
+      ],
+      "fail": [
+        "I know nothing.",
+        "I have no time to talk.",
+        "Go your own way."
+      ],
+      "neutral": [
+        "Maybe I've heard something.",
+        "People say all sorts of things.",
+        "Not everything can be told to a stranger."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "For a kind man, I don't mind."
+      ],
+      "success_bonus": [
+        "Here, take some bread. You look thin.",
+        "Come by in the evening, I'll feed you.",
+        "I'll tell you one thing. Just don't tell anyone."
+      ],
+      "charm_fail": [
+        "Scoundrel! Take that, and that!",
+        "Oh, you're a smooth one! Here, take this!",
+        "Don't flatter me, I don't like your kind."
+      ],
+      "charm_neutral": [
+        "What a flatterer.",
+        "Oh, you don't say.",
+        "Enough, get to the point."
+      ],
+      "charm_success": [
+        "Oh, what are you doing. I'll tell you, I'll tell you.",
+        "You're a smooth one. I'm listening.",
+        "How could I refuse someone like that."
+      ]
+    },
+    "blacksmith": {
+      "intro": [
+        "Hey! What do you need? A horseshoe? Or some weapon to buy?",
+        "Come in. Hammer in hand, iron hot — talk fast.",
+        "What do you want? To buy, to fix, or just to gawk?"
+      ],
+      "fail_angry": [
+        "Get out of the forge! There's fire here, no place for chatterboxes!",
+        "One more word and I'll hit you with the hammer!",
+        "Leave while I'm still kind!"
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now. The iron is cooling.",
+        "Move along, don't bother me."
+      ],
+      "neutral": [
+        "Maybe I heard something.",
+        "Things happen here. I have no time for rumors.",
+        "Buy something — then we'll talk."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Come in, we'll talk."
+      ],
+      "success_bonus": [
+        "Here, take this. A small thing, but it'll serve you on the road.",
+        "I heard about a place. Go take a look.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "trade_fail": [
+        "I won't give it away for nothing.",
+        "The price is what I said. Iron doesn't get cheaper.",
+        "I don't haggle. This isn't a market."
+      ],
+      "trade_neutral": [
+        "Fine, so be it.",
+        "Take it. Just don't dull it.",
+        "Consider it settled."
+      ],
+      "trade_success": [
+        "Eh, take it cheaper. A kind word from you is enough.",
+        "For you — a fair price.",
+        "Fine, I'll give in. Just for today."
+      ],
+      "quest_none": [
+        "I have no work.",
+        "No work. Buy or leave.",
+        "Not now."
+      ],
+      "quest_give": [
+        "There is one matter. Listen.",
+        "Hm. Maybe you'll do.",
+        "There is. But not for chatterboxes."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ],
+      "exit_early": [
+        "Where are you going? I'm not done with you.",
+        "Hm. Gone is gone.",
+        "Rude. Don't come back."
+      ]
+    },
+    "merchant": {
+      "intro": [
+        "Hello! Want to buy something?",
+        "Come in, wanderer. Goods are first-rate.",
+        "What will it be? I have everything."
+      ],
+      "fail_angry": [
+        "Get out before I call the guards!",
+        "Don't come back here!",
+        "You'll scare off my customers!"
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now. I'm trading.",
+        "Move along. Don't linger."
+      ],
+      "neutral": [
+        "Maybe I know. Maybe not.",
+        "Everything here is for money.",
+        "Buy something first."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Come in, we'll talk."
+      ],
+      "success_bonus": [
+        "Here, take a trinket. For a pleasant conversation.",
+        "I heard about a place. Go take a look.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "trade_fail": [
+        "I won't give it away for nothing.",
+        "The price is what I said.",
+        "I don't haggle. This isn't a market."
+      ],
+      "trade_neutral": [
+        "Fine, so be it.",
+        "Take it, just don't crumple it.",
+        "Consider it settled."
+      ],
+      "trade_success": [
+        "Eh, take it cheaper. A kind word from you is enough.",
+        "For you — a fair price.",
+        "Fine, I'll give in. Just for today."
+      ],
+      "bribe_fail": [
+        "I don't like your kind.",
+        "Put that away before someone sees.",
+        "I don't want trouble."
+      ],
+      "bribe_neutral": [
+        "Not enough.",
+        "Add more and we'll talk.",
+        "Not for free."
+      ],
+      "bribe_success": [
+        "Fine. I'm listening.",
+        "I didn't see you.",
+        "Keep it quiet. Walls have ears."
+      ],
+      "quest_none": [
+        "I have no work.",
+        "No work. Buy or leave.",
+        "Not now."
+      ],
+      "quest_give": [
+        "There is one matter. Listen.",
+        "Hm. Maybe you'll do.",
+        "There is. But not for chatterboxes."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ]
+    },
+    "guard": {
+      "intro": [
+        "I am the law here!",
+        "Stop. Who are you?",
+        "What do you want, rogue?"
+      ],
+      "fail_angry": [
+        "One more step and I'll tie you up!",
+        "Hands! Show me your hands!",
+        "Hey you! Sword out of the sheath!"
+      ],
+      "fail": [
+        "I don't know. Move along.",
+        "None of your business.",
+        "Go your own way."
+      ],
+      "neutral": [
+        "Maybe I know.",
+        "Why should I tell you?",
+        "Things happen here. Not everything is for your ears."
+      ],
+      "success": [
+        "Fine. Listen.",
+        "I'll tell you. Since you ask.",
+        "Hm. Well, listen."
+      ],
+      "success_bonus": [
+        "Here, take this. For your wits.",
+        "I'll tell you more. Just quietly.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "threat_fail": [
+        "Me?! Threaten me?!",
+        "Hands behind your back, now!",
+        "One more word and you're in the pit."
+      ],
+      "threat_neutral": [
+        "Easy now.",
+        "Don't push your luck.",
+        "What will you do to me?"
+      ],
+      "threat_success": [
+        "Fine, fine. Keep it quiet.",
+        "Alright. Just leave.",
+        "We'll make a deal. Not here."
+      ],
+      "bribe_fail": [
+        "I don't take bribes!",
+        "Who do you take me for?!",
+        "Hide it before I see it."
+      ],
+      "bribe_neutral": [
+        "Not enough.",
+        "Add more and we'll talk.",
+        "Not for free."
+      ],
+      "bribe_success": [
+        "Fine. But be quick.",
+        "I didn't see you.",
+        "Go. And don't look back."
+      ],
+      "quest_none": [
+        "I have no work for you.",
+        "No work. Go.",
+        "Not now."
+      ],
+      "quest_give": [
+        "There is one matter. Listen.",
+        "Hm. There is. But not for chatterboxes.",
+        "There is. Succeed and I won't forget."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ]
+    },
+    "fisherman": {
+      "intro": [
+        "Care for some fish?",
+        "Fresh, just from the river.",
+        "What do you want, wanderer?"
+      ],
+      "fail_angry": [
+        "Get lost before I hit you with my rod!",
+        "Don't scare my fish!",
+        "Get out, this spot is taken."
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now, they're biting.",
+        "Move along, don't bother me."
+      ],
+      "neutral": [
+        "Maybe I heard something.",
+        "Things happen here.",
+        "I'll tell you if you buy."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Just quietly, you'll scare the fish."
+      ],
+      "success_bonus": [
+        "Here, take a little tail. For a kind word.",
+        "I heard about a whirlpool. Don't go there.",
+        "Take some dried fish. It'll serve you on the road."
+      ],
+      "trade_fail": [
+        "I won't give it away for nothing.",
+        "I don't haggle. The price is what I said.",
+        "Take it or leave it."
+      ],
+      "trade_neutral": [
+        "Fine, so be it.",
+        "Take it, just don't crumple it.",
+        "Consider it settled."
+      ],
+      "trade_success": [
+        "Eh, take it cheaper. A kind word from you is enough.",
+        "For you — a fair price.",
+        "Fine, I'll give it away for half price."
+      ],
+      "quest_none": [
+        "I have no work.",
+        "I can barely make ends meet myself.",
+        "Look for someone else."
+      ],
+      "quest_give": [
+        "There is one matter. Listen.",
+        "Hm. Maybe you'll do.",
+        "Well, since you ask — there is."
+      ],
+      "quest_already": [
+        "We've already spoken.",
+        "You haven't finished yet.",
+        "Finish that first."
+      ]
+    },
+    "child": {
+      "intro": [
+        "Mister, don't hit me!",
+        "Who are you? Mommy!",
+        "Mister, do you have a coin?"
+      ],
+      "fail_angry": [
+        "Mo-o-om! A strange man!",
+        "Don't come closer! I'll scream!",
+        "Take that! And you can't catch me!"
+      ],
+      "fail": [
+        "I don't know.",
+        "Mommy says I shouldn't talk.",
+        "Leave me alone."
+      ],
+      "neutral": [
+        "Maybe I saw.",
+        "What will I get for it?",
+        "All sorts of things run around here."
+      ],
+      "success": [
+        "Fine, listen.",
+        "Just don't tell mommy.",
+        "I saw it, I saw it!"
+      ],
+      "success_bonus": [
+        "Mister, a coin? Then I'll tell you.",
+        "I know a place. Just quietly.",
+        "There's a hole in the fence by the big house. You can hear everything there."
+      ],
+      "charm_fail": [
+        "No-o-o, you're scary!",
+        "Mommy said the nice ones are the worst.",
+        "Don't try to sweet-talk me, I'm not little!"
+      ],
+      "charm_neutral": [
+        "We-ell, fine.",
+        "You won't trick me?",
+        "You don't say."
+      ],
+      "charm_success": [
+        "Mister, you're kind, right?",
+        "Fine, I'll tell you.",
+        "You're good. I know."
+      ]
+    },
+    "veteran": {
+      "intro": [
+        "Seen much. Know much. What do you want?",
+        "Sit down, wanderer. Talk.",
+        "What do you want? Speak plainly."
+      ],
+      "fail_angry": [
+        "One more word and I'll teach you some manners!",
+        "Boy. I've killed ones like you.",
+        "Leave while I'm still kind."
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now. Go.",
+        "Move along. Don't linger."
+      ],
+      "neutral": [
+        "Maybe I know.",
+        "Things happen here. I've seen much.",
+        "First tell me why you want to know."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Good. Listen carefully."
+      ],
+      "success_bonus": [
+        "Here, take this. It'll serve you on the road.",
+        "I'll tell you more. Just between us.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "threat_fail": [
+        "Me?! Ha!",
+        "Open your mouth again and I'll put you down.",
+        "You're too young to threaten me."
+      ],
+      "threat_neutral": [
+        "Easy now.",
+        "Don't push your luck, pup.",
+        "What will you do to me?"
+      ],
+      "threat_success": [
+        "Fine, fine. Keep it quiet.",
+        "Alright. Just leave.",
+        "We'll make a deal. Not here."
+      ],
+      "quest_none": [
+        "I have no work.",
+        "No work. Go.",
+        "Not now."
+      ],
+      "quest_give": [
+        "There is one matter. Listen.",
+        "Hm. Maybe you'll do.",
+        "There is. But not for chatterboxes."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ],
+      "train_offer": [
+        "Want to learn? Watch and remember.",
+        "Fine. I'll show you how to hold it. Once.",
+        "Hm. There's something in you. Come here."
+      ],
+      "train_done": [
+        "I've shown you all I could. The rest is on you.",
+        "There's nothing more I can teach you.",
+        "Enough. The rest is your work."
+      ],
+      "train_used": [
+        "I've already taught you. Remember?",
+        "Once. I said — once.",
+        "That's it. Don't ask again."
+      ]
+    },
+    "cleric": {
+      "intro": [
+        "Child, believe in the Lord, feel the light within!",
+        "May the Light be with you, wanderer.",
+        "Come in, child. What brings you here?"
+      ],
+      "fail_angry": [
+        "Begone, infidel! Do not defile this holy place!",
+        "Depart! The Light is not for ones like you!",
+        "The Lord sees you. Leave."
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now, child. Go in peace.",
+        "Move along. Don't linger."
+      ],
+      "neutral": [
+        "Maybe I know.",
+        "Things happen here. Not everything is for your ears.",
+        "First tell me why you want to know."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know. In the name of the Light.",
+        "Good. Listen carefully."
+      ],
+      "success_bonus": [
+        "Here, take this. I bless you on your way.",
+        "I'll tell you more. Just between us.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "quest_none": [
+        "I have no work for you.",
+        "No work. Go in peace.",
+        "Not now, child."
+      ],
+      "quest_give": [
+        "There is one matter. In the name of the Light.",
+        "Hm. Maybe you'll do.",
+        "There is. But not for chatterboxes."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ],
+      "train_offer": [
+        "Want to comprehend the Light? Then listen.",
+        "Fine, child. I'll show you the way.",
+        "Hm. There's a spark in you. Come here."
+      ],
+      "train_done": [
+        "I've shown you all I could. The rest is on you.",
+        "There's nothing more I can teach you.",
+        "Enough. The rest is your prayer."
+      ],
+      "train_used": [
+        "I've already taught you. Remember?",
+        "Once. I said — once.",
+        "That's it. Don't ask again."
+      ],
+      "train_locked": [
+        "The Light is not for you. Believe first.",
+        "You're not ready yet. Go, child.",
+        "Not now. Maybe later."
+      ]
+    },
+    "necromancer": {
+      "intro": [
+        "The Dark accepts all, all will come to the Dark.",
+        "Come in, wanderer. The Dark awaits.",
+        "What do you want? Speak quietly."
+      ],
+      "fail_angry": [
+        "Leave before the Dark takes you early.",
+        "You're in my way. Vanish.",
+        "One more word and you won't leave here."
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now. Go.",
+        "Move along. Don't linger."
+      ],
+      "neutral": [
+        "Maybe I know.",
+        "Things happen here. Not everything is for outsiders' ears.",
+        "First tell me why you want to know."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know. In the name of the Dark.",
+        "Good. Listen carefully."
+      ],
+      "success_bonus": [
+        "Here, take this. The Dark is generous to its own.",
+        "I'll tell you more. Just between us.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "trade_fail": [
+        "I won't give it away for nothing.",
+        "The price is what I said.",
+        "I don't haggle. This isn't a market."
+      ],
+      "trade_neutral": [
+        "Fine, so be it.",
+        "Take it. Just don't dull it.",
+        "Consider it settled."
+      ],
+      "trade_success": [
+        "Eh, take it cheaper. The Dark loves the generous.",
+        "For you — a fair price. In the dark way.",
+        "Fine, I'll give in. Just for today."
+      ],
+      "bribe_fail": [
+        "I don't need your coins.",
+        "Put it away. The Dark takes differently.",
+        "Not for free. Not for money."
+      ],
+      "bribe_neutral": [
+        "Not enough.",
+        "Add more and we'll talk.",
+        "Not for free."
+      ],
+      "bribe_success": [
+        "Fine. I'm listening.",
+        "The Dark has accepted your gift.",
+        "Keep it quiet. Walls have ears."
+      ],
+      "quest_none": [
+        "I have no work for you.",
+        "No work. Go.",
+        "Not now."
+      ],
+      "quest_give": [
+        "There is one matter. In the name of the Dark.",
+        "Hm. Maybe you'll do.",
+        "There is. But not for chatterboxes."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ],
+      "train_offer": [
+        "Want to comprehend the Dark? Then listen.",
+        "Fine. I'll show you the way.",
+        "Hm. There's a spark in you. Come here."
+      ],
+      "train_done": [
+        "I've shown you all I could. The rest is on you.",
+        "There's nothing more I can teach you.",
+        "Enough. The rest is your Dark."
+      ],
+      "train_used": [
+        "I've already taught you. Remember?",
+        "Once. I said — once.",
+        "That's it. Don't ask again."
+      ],
+      "train_locked": [
+        "The Dark is not for you. Believe first.",
+        "You're not ready yet. Go.",
+        "Not now. Maybe later."
+      ]
+    },
+    "tavernkeeper": {
+      "intro": [
+        "What will it be? There's food, drink, a room.",
+        "Come in, wanderer. What brings you here?",
+        "Sit down. What do you want?"
+      ],
+      "fail_angry": [
+        "Get out of my tavern!",
+        "Open your mouth again and I'll throw you out!",
+        "Guards! Remove him!"
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now. I have people to feed.",
+        "Move along. Don't linger."
+      ],
+      "neutral": [
+        "Maybe I heard something.",
+        "People say all sorts of things. Not everything out loud.",
+        "Buy something — then we'll talk."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Come by in the evening, I'll tell you."
+      ],
+      "success_bonus": [
+        "Here, take a mug. On the house.",
+        "I heard one thing. Just between us.",
+        "I have a nicer little room. I'll give it for the same price."
+      ],
+      "trade_fail": [
+        "I won't pour for free.",
+        "The price is what I said.",
+        "I don't haggle with strangers."
+      ],
+      "trade_neutral": [
+        "Fine, so be it.",
+        "Take it, just don't linger.",
+        "Consider it settled."
+      ],
+      "trade_success": [
+        "Eh, take it cheaper. A kind word from you is enough.",
+        "For you — a fair price.",
+        "Fine, I'll pour you an extra."
+      ],
+      "bribe_fail": [
+        "I don't like your kind.",
+        "Put that away before someone sees.",
+        "I don't want trouble."
+      ],
+      "bribe_neutral": [
+        "Not enough.",
+        "Add more and we'll talk.",
+        "Not for free."
+      ],
+      "bribe_success": [
+        "Fine. I'm listening.",
+        "I didn't see you.",
+        "Keep it quiet. Walls have ears."
+      ],
+      "quest_none": [
+        "I have no work.",
+        "No work. Drink or leave.",
+        "Not now."
+      ],
+      "quest_give": [
+        "There is one matter. Listen.",
+        "Hm. Maybe you'll do.",
+        "There is. But not for chatterboxes."
+      ],
+      "quest_already": [
+        "You haven't finished yet.",
+        "Finish that first.",
+        "I remember. Go work."
+      ]
+    }
+  },
+  "events": {
+    "mage_event": {
+      "intro": [
+        "Seeking knowledge? Or doom?",
+        "Hm. You're not like the others. Come in.",
+        "Ah, another seeker. Speak."
+      ],
+      "fail_angry": [
+        "Begone, fool. You're not worth my time.",
+        "Vanish. Or I'll vanish you myself.",
+        "One more word and you'll learn why I'm here."
+      ],
+      "fail": [
+        "I know nothing.",
+        "Not now. Go.",
+        "Move along. Don't linger."
+      ],
+      "neutral": [
+        "Maybe I know.",
+        "Things happen here. Not everything is for your ears.",
+        "First tell me why you want to know."
+      ],
+      "success": [
+        "Fine, listen.",
+        "I'll tell you what I know.",
+        "Good. Listen carefully."
+      ],
+      "success_bonus": [
+        "Here, take this. It'll serve you on the road.",
+        "I'll tell you more. Just between us.",
+        "I know a man. Go see him. Tell him I sent you."
+      ],
+      "trade_fail": [
+        "I won't give it away for nothing.",
+        "The price is what I said. Knowledge doesn't come cheaper.",
+        "I don't haggle. This isn't a market."
+      ],
+      "trade_neutral": [
+        "Fine, so be it.",
+        "Take it. Just don't dull it.",
+        "Consider it settled."
+      ],
+      "trade_success": [
+        "Eh, take it cheaper. Knowledge loves the generous.",
+        "For you — a fair price.",
+        "Fine, I'll give in. Just for today."
+      ],
+      "bribe_fail": [
+        "I don't need your coins.",
+        "Put it away. I'm not for money.",
+        "Not for free. Not for money."
+      ],
+      "bribe_neutral": [
+        "Not enough.",
+        "Add more and we'll talk.",
+        "Not for free."
+      ],
+      "bribe_success": [
+        "Fine. I'm listening.",
+        "Knowledge has accepted your gift.",
+        "Keep it quiet. Walls have ears."
+      ],
+      "train_offer": [
+        "Want to comprehend? Then listen.",
+        "Fine. I'll show you the way.",
+        "Hm. There's a spark in you. Come here."
+      ],
+      "train_done": [
+        "I've shown you all I could. The rest is on you.",
+        "There's nothing more I can teach you.",
+        "Enough. The rest is your work."
+      ],
+      "train_locked": [
+        "Not yet. First a staff, then a teacher.",
+        "Too early for you. Go find a staff.",
+        "Not now. Maybe later."
+      ]
+    },
+    "preacher_event": {
+      "intro": [
+        "Love thy neighbor, wanderer!",
+        "Stop, listen to the word of God.",
+        "Peace be with you, traveler. Sit, rest."
+      ],
+      "curse": [
+        "You are cursed. The Lord has turned away from you.",
+        "The Dark is on you. I feel it.",
+        "You're a bad man, wanderer. I can see."
+      ],
+      "nothing": [
+        "Go in peace.",
+        "Fine. Go where you were going.",
+        "I won't keep you."
+      ],
+      "blessing": [
+        "You are blessed, wanderer. Go in peace.",
+        "The Light is on you. I feel it.",
+        "You're a good man. I can see."
+      ]
+    }
+  }
+}
