@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ 886d31f` · Verified: 20.11.2026 · Tests: 1826 passed
+Spec: v0.7.0 · Code: `main @ 8847212 + working tree` · Verified: 20.11.2026 · Tests: 2222 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -119,13 +119,35 @@ Implemented in `burt/quests.py`, wired through `loop.py`.
 
 **Code:** no `quest_give` / `quest_progress` / `quest_complete` call anywhere in the game. `quests_templates.json` contains only the faith chains (`pala_1..3`, `heretic_1..3`) — no role quest templates at all, and no "scroll" menu action. `dialog_state["quest_state"]` is hardcoded `"available"` (`loop.py:1037`), so the quest reply branch always answers as if a quest is available.
 
-### 4. Trade is not wired (§19, §35) — CORE ONLY
+### 4. Trade is wired — DONE (§19, §35) — CLOSED 20.11.2026
 
-**Evidence:** `burt/trade.py` (183 lines) + `tests/test_trade.py` (345 lines); `grep "trade\."` outside `trade.py`/tests returns zero hits.
+Implemented in `burt/economy.py` (new, price composition + inventory
+stacks + node cache) and `burt/loop.py` (`_build_shop_menu`,
+`_open_shop`, `_execute_trade_buy`, `_execute_trade_sell`).
 
-**Spec requires:** buy/sell menu at the 7 trade roles, role price modifiers, location modifier +/-25% rolled once on entering a location, `sell = floor(floor(base*0.5)*mod)`, tavern room purchase.
+- `dialog_trade` opens a shop sub-mode inside the dialogue; while open the
+  menu shows `dialog_buy_<item>` / `dialog_sell_<item>` / `dialog_trade_close`
+- buy list = `trade.ROLE_SELLS[role]`, sell list = every inventory item with
+  a known price (`BASE_PRICES` or `LOOT_PRICES`)
+- price = `floor(base * location * reputation * trade_bonus)` for buys and
+  `floor(floor(base * 0.5) * ...)` for sells, computed with exact fractions
+  so the floor never depends on float noise
+- location modifier (§35): rolled once per node, cached in
+  `hidden["prices_by_node"]`; rolled on the first meeting with a trader of
+  that node (movement/encounter dice order stays untouched)
+- reputation (§16): `price_modifier()` now actually reaches the counter
+- `trade_discount` from npc.py is read once per dialogue (20% off)
+- `tavern_room` is one-shot goods: `hidden["has_room_tonight"] = True`, no
+  inventory item; reset on sleep; second purchase the same night is refused
+- `bedroll` is a normal inventory item (§5 gate, see #13)
+- loot sells (§22): `goblin_dagger`, `goblin_staff`, `bandage`, `fangs`,
+  `pelt`, `low_quality_sword`, `dragon_*`; `bandage` sells for 0 coin per
+  the §35 formula (event says so)
+- §9 trophy road: two `goblin_staff` sold to the necromancer and he hands
+  over a real `staff` (agreement of 20.11.2026)
+- a failed purchase (no coin, wrong item) does not advance the step
 
-**Code:** no buy/sell actions, no price-modifier roll, no room purchase, loot items have no sell path.
+Tests: `test_economy.py` (33), `test_trade_loop.py` (41).
 
 ---
 
@@ -153,13 +175,33 @@ Implemented in `burt/quests.py`, wired through `loop.py`.
 
 **Code:** Burt always fights with fists; inventory weapons have no effect.
 
-### 8. Magic is unreachable (§9) — CORE ONLY
+### 8. Magic is reachable — DONE (§9) — CLOSED 20.11.2026
 
-**Evidence:** `burt/magic.py` (202 lines) is not imported by the game; `state.py:148` (`spells = {element: None, alignment: None}`) is never granted; `loop.py:992-997` derives `spells_available` from it.
+Implemented in `burt/magic.py` (state + training), `burt/npc_spawn.py`
+(mage spawn) and `burt/loop.py` (training reply, cast gate).
 
-**Spec requires:** three conditions (staff + spell + teacher), 2 spells per life, light/dark mutually exclusive, cast = 1 MP / 3-6 damage, teacher events for mage / cleric / necromancer.
+- three conditions (§9) are now enforced by `magic.cast_ready`:
+  `staff` (inventory or `hidden["has_staff"]`) + at least one spell +
+  `hidden["teacher_found"]`; `cast` appears in the combat menu only then
+- training: `cleric -> light`, `necromancer -> dark`,
+  `mage_event -> his element`; limits 1 element + 1 alignment per life,
+  light and dark mutually exclusive; once per teacher per life
+  (`hidden["trained_by"]`)
+- mage element is rolled 1d4 at SPAWN time (`magic.record_teacher_spawn`),
+  cached in `hidden["magic"]["teachers"]["mage_event"]["element"]`
+- wandering mage spawn: temple / dungeon, d6 >= 5, at most once per life
+  (`npc_spawn.maybe_add_mage`); runs after the fixed role, so the movement
+  and NPC dice order is unchanged
+- training also raises a skill (`Magic` / `Combat`), 1/10 and up to 10 (§32,
+  §8); visible through `visible["skills_visible"]`
+- staff sources: buy from mage / necromancer (100 coin) or the trophy road
+  (two `goblin_staff` sold to the necromancer)
+- cast itself was already implemented in combat (§23): 1 MP, 3-6 damage
 
-**Code:** "Cast" can never appear in the combat menu in a real game.
+Not in this scope (tracked separately): weapon-damage table (#7), full
+10-skill system (#6), faith chains (#10).
+
+Tests: `test_magic_wiring.py` (34).
 
 ### 9. Reputation — DONE (§16) — CLOSED 20.11.2026
 
@@ -210,13 +252,18 @@ Implemented in `burt/reputation.py`, wired through `loop.py`.
 
 **Also:** "re-ask once when `CHOICE` is missing" is not implemented — `parse_choice` (`loop.py:414-480`) goes straight to rfind/synonym heuristics and then to the first menu item.
 
-### 13. Sleep availability ignores bedroll / tavern room (§5) — DEVIATION
+### 13. Sleep availability honours bedroll / tavern room — DONE (§5) — CLOSED 20.11.2026
 
-**Evidence:** `sleep.py:43` `is_sleep_available()` is never called; `loop.py:166-175` offers "Sleep" at `step >= 19` or HP < 25%.
+`sleep.is_sleep_available(step, in_combat, has_bedroll, has_room)` is now the
+gate of the menu entry (`loop._sleep_available`).
 
-**Cause:** a room or bedroll cannot be bought while trade is not wired (see #4).
-
-**Spec requires:** sleep only with a bedroll in inventory or a paid tavern room; otherwise the "sleep" item is absent from the menu.
+- `sleep` appears only from step 19, outside combat, with a `bedroll` in the
+  inventory or `hidden["has_room_tonight"]`
+- `write_diary_and_go_sleep` requires the same gate plus step >= 19
+- a paid room is consumed by sleep (`has_room_tonight = False`) in both
+  `loop` and `main._do_sleep`
+- **kept deviation:** below step 19 a Burt with critical HP (< 25%) may still
+  sleep without a bed — see the deviations table
 
 ### 14. Day counter advances during dialogue (§3) — DEVIATION
 
@@ -273,7 +320,7 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 ### 22. Role key mismatch — PARTIAL
 
 - `peasant_woman` exists in `replicas.json` and in `npc.py` categories, but is missing from `state.ROLE_NAMES` (`state.py:23-36`), so `validate_state` would reject it.
-- `ROLE_NAMES` has `mage`, while `replicas.json` uses `mage_event`, so mage reputation can never be keyed correctly (no practical effect yet, see #9).
+- `ROLE_NAMES` has `mage`, while `replicas.json` uses `mage_event`. **Fixed for reputation and trade:** `loop._REP_ROLE_ALIAS` maps `mage_event -> mage`, so the mage's shop and reputation are keyed correctly (see `test_magic_wiring.py::TestMageShop`). The raw replica key is still `mage_event` in `npcs_here`.
 
 ### 23. World graph has 2-4 exits instead of 4 neighbours (§17) — ACCEPTED
 
@@ -291,7 +338,7 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 |---|---|---|
 | §4 | Hunger inject fires on EVERY step with `eat=False` (spec: steps 0 and 10 only) | the model saw "Fed: yes" and "you are hungry" at the same time |
 | §25, §31 | `SHOW_SLEEP_TIMER` removed, no `Sleep: 15/20` in `[STATE]` | `sleep_counter` was never updated and confused the LLM (HANDOFF-12) |
-| §5 | Sleep without bedroll/room | a room cannot be bought until trade is wired (#4) |
+| §5 | Below step 19 a Burt with critical HP (< 25%) may sleep without a bed | safety valve; a dying model kept walking into death without it (kept after #13) |
 | §29 | Diary = one string, overwritten daily, no 5-day summary | HANDOFF-13, deliberate |
 | §28 | Memory via `epitaphs.json` + `meta["memory"]` | HANDOFF-15 |
 | §26 | No re-ask when `CHOICE` is missing | replaced by rfind + synonym parser |
@@ -309,6 +356,9 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 - **Death / resurrection:** 1d6, 2 HP, new life with memory transfer — done.
 - **Diary / epitaph / memory summary (10+ lives):** wired to the LLM.
 - **`npc.py` dialogue engine:** categories, dice pairs, bonuses, anger lock, bribe, training, heretic deception — implemented; the remaining gap is spawn (#2).
+- **Trade (§35):** shop sub-mode, three-modifier prices, tavern room, loot selling, trophy staff road — done (#4).
+- **Magic (§9):** staff + spell + teacher gate, teacher spawn, light/dark lock, skill growth — done (#8).
+- **Sleep gate (§5):** bedroll or paid room via `sleep.is_sleep_available` — done (#13).
 - **`loop.py.back` leftover:** no longer present in `burt/`.
 - **Gemma 3n robotic behaviour:** model limitation, WON'T FIX.
 - **LLM ignores micro-location context:** cosmetic, open but harmless.
@@ -324,6 +374,7 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 | "`loop.py.back` exists in burt/" | absent |
 | "`SHOW_SLEEP_TIMER` missing — minor" | removed on purpose, see Intentional Deviations |
 | "chain templates not in code" | `quests_templates.json` has `pala_1..3` / `heretic_1..3`; they are simply never issued (#3) |
+| "trade.py / magic.py are dead code" | both are wired now: `burt/economy.py` + shop sub-mode for trade, `magic.cast_ready` + teacher spawn for magic (#4, #8) |
 
 ---
 
@@ -331,13 +382,13 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 | Severity | Count |
 |---|---|
-| 🔴 Critical | 1 (was 4; logging, NPC spawn, role quests closed) |
-| 🟠 High | 5 (was 7; reputation closed, quests closed) |
-| 🟡 Medium | 5 |
+| 🔴 Critical | 0 (was 4; logging, NPC spawn, role quests, trade closed) |
+| 🟠 High | 5 (was 7; reputation and magic closed) |
+| 🟡 Medium | 4 (was 5; sleep availability closed) |
 | 🟢 Low | 8 |
 | ⚪ Intentional deviations | 8 |
-| ✅ Closed | 4 (#1 logging, #2 NPC spawn, #3 role quests, #9 reputation) |
-| **Total open** | **19** |
+| ✅ Closed | 7 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #8 magic, #9 reputation, #13 sleep) |
+| **Total open** | **17** |
 
 ---
 
@@ -345,7 +396,7 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe tests/ -q     # 2099 passed
+.\.venv\Scripts\pytest.exe tests/ -q     # 2222 passed
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5

@@ -32,6 +32,9 @@ from burt import reputation
 from burt import loot
 from burt import search as search_mod
 from burt import items
+from burt import economy
+from burt import trade
+from burt import magic
 from burt.combat import CombatState, BurtStats
 from burt.bestiary import ENEMIES
 from burt.dice import (
@@ -99,6 +102,16 @@ _ENCOUNTER_LOCATIONS = {
 _AMBUSH_LOCATION = "thicket"  # §32: ambush at thicket
 _COMBAT_HEADER = "[COMBAT]"  # first line of sensory.format_combat_report
 
+# §9/§16: replica keys of spawned non-role NPCs mapped to a reputation role.
+# "mage_event" teaches elements (§9) but reputation is tracked per §16 role.
+_REP_ROLE_ALIAS = {
+    "mage_event": "mage",
+    "preacher_event": "cleric",
+}
+
+# npc.py bonus "trade_discount" percent -> multiplier (20% -> 0.8).
+_TRADE_DISCOUNT_DEFAULT = 20
+
 # П.1: Словарь синонимов для парсинга текста.
 _ACTION_SYNONYMS = {
     "go_north": ["north", "walk north", "step north", "head north", "move north"],
@@ -165,11 +178,9 @@ def build_menu(visible: dict, state: dict, *,
     actions.append(Action(key="scroll", label="Quest scroll", cost_free=True))
 
     step = hidden.get("step", 0)
-    hp = visible.get("hp", 10)
-    hp_max = visible.get("hp_max", 10)
-    if step >= 19 or (hp_max > 0 and hp * 100 < hp_max * 25):
+    if _sleep_available(visible, hidden):
         actions.append(Action(key="sleep", label="Sleep"))
-        if step >= 19:
+        if step >= sleep_mod.SLEEP_AVAILABLE_FROM:
             actions.append(Action(
                 key="write_diary_and_go_sleep",
                 label="Write diary and go to sleep",
@@ -202,6 +213,9 @@ def _build_dialog_menu(visible: dict, state: dict,
     ds = hidden.get("dialog_state")
     if ds is None:
         return []
+    # §35: while the shop is open, the trader shows goods, not topics.
+    if ds.get("shop"):
+        return _build_shop_menu(visible, state, ds)
     role_key = ds.get("role_key", "")
     cats = engine.available_categories(role_key)
     actions: list[Action] = []
@@ -216,6 +230,68 @@ def _build_dialog_menu(visible: dict, state: dict,
             actions.append(Action(key="dialog_exit", label="Leave conversation"))
         else:
             actions.append(Action(key=f"dialog_{cat}", label=cat.capitalize()))
+    return actions
+
+
+def _rep_role(role_key: str) -> str:
+    """Reputation role behind a replica key (§16)."""
+    return _REP_ROLE_ALIAS.get(role_key, role_key)
+
+
+def _shop_role(ds: dict) -> str:
+    """Catalog role of the open shop (§35 ROLE_SELLS key)."""
+    return ds.get("shop_role") or _rep_role(ds.get("role_key", ""))
+
+
+def _has_staff(visible: dict, hidden: dict) -> bool:
+    """§9: a staff is either in the inventory or flagged in hidden."""
+    return bool(hidden.get("has_staff")) or economy.has_item(visible, "staff")
+
+
+def _display_name(item: str) -> str:
+    """Human-readable item name for menu labels and events."""
+    known = items.ITEMS.get(item)
+    if known is not None:
+        return known.display
+    return item.replace("_", " ").capitalize()
+
+
+def _price_context(state: dict, ds: dict) -> dict:
+    """Three modifiers of §35 + §16 + npc.py trade bonus."""
+    hidden = state.setdefault("hidden", {})
+    node_id = hidden.get("current_node_id", "start")
+    role = _shop_role(ds)
+    shop = ds.get("shop") or {}
+    return {
+        "location": economy.cached_modifier(hidden, node_id),
+        "reputation": reputation.price_modifier(reputation.get(state, role)),
+        "trade_bonus": float(shop.get("bonus", 1.0)),
+    }
+
+
+def _build_shop_menu(visible: dict, state: dict, ds: dict) -> list[Action]:
+    """§35: buy list of the role + sell list of the inventory."""
+    ctx = _price_context(state, ds)
+    role = _shop_role(ds)
+    actions: list[Action] = []
+
+    for item in sorted(trade.ROLE_SELLS.get(role, frozenset())):
+        price = economy.buy_price(item, **ctx)
+        actions.append(Action(
+            key=f"dialog_buy_{item}",
+            label=f"Buy {_display_name(item)} ({price} coin)",
+            item=item,
+        ))
+
+    for item in economy.sellable_items(visible):
+        price = economy.sell_price(item, **ctx)
+        actions.append(Action(
+            key=f"dialog_sell_{item}",
+            label=f"Sell {_display_name(item)} ({price} coin)",
+            item=item,
+        ))
+
+    actions.append(Action(key="dialog_trade_close", label="Done trading"))
     return actions
 
 
@@ -787,6 +863,8 @@ def execute_action(action: Action, state: dict, rng=None,
         eat, res = hunger.reset_hunger_after_sleep()
         visible["eat"] = eat
         visible["sleep_counter"] = 0
+        # §35: a paid room is good for one night only.
+        hidden["has_room_tonight"] = False
         hidden["day"] = hidden.get("day", 1) + 1
         hidden["step"] = 0
         visible["date"] = f"{hidden['day']} day(s)"
@@ -954,12 +1032,8 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
 
 def _build_burt_stats(visible: dict, hidden: dict) -> BurtStats:
     """Assemble BurtStats from visible + hidden for combat."""
-    spells = hidden.get("spells") or {}
-    if not isinstance(spells, dict):
-        spells = {}
-    element = spells.get("element")
-    alignment = spells.get("alignment")
-    spells_available = (element is not None) or (alignment is not None)
+    # §9: casting needs staff + spell + teacher (magic.cast_ready).
+    spells_available = magic.cast_ready(hidden, _has_staff(visible, hidden))
 
     return BurtStats(
         hp=visible["hp"],
@@ -968,6 +1042,25 @@ def _build_burt_stats(visible: dict, hidden: dict) -> BurtStats:
         mp_max=visible["mp_max"],
         spells_available=spells_available,
     )
+
+
+def _sleep_available(visible: dict, hidden: dict) -> bool:
+    """§5: sleep needs a bedroll or a paid room, and not combat.
+
+    The `sleep.py` core decides; this wrapper only reads the state.
+    Critical HP keeps a safety valve below the step threshold (deviation
+    documented in known_issues #13: a dying Burt may sleep without a bed).
+    """
+    has_bedroll = economy.has_item(visible, "bedroll")
+    has_room = bool(hidden.get("has_room_tonight"))
+    in_combat = hidden.get("current_mode") == "combat"
+    step = hidden.get("step", 0)
+    if sleep_mod.is_sleep_available(step, in_combat, has_bedroll, has_room):
+        return True
+
+    hp = visible.get("hp", 10)
+    hp_max = visible.get("hp_max", 10)
+    return hp_max > 0 and hp * 100 < hp_max * 25
 
 
 def should_sleep(visible: dict, state: dict) -> bool:
@@ -992,16 +1085,28 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
     """Enter dialog mode with the given NPC role."""
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
+    rep_role = _rep_role(role_key)
     hidden["current_mode"] = "dialog"
     hidden["dialog_state"] = {
         "role_key": role_key,
+        "rep_role": rep_role,
+        "shop_role": rep_role,
+        "shop": None,
+        "train_asked": False,
         "is_angry": False,
         "turn": 0,
         "anger_lock_until": None,
         "bonus_used": False,
-        "quest_state": quests.quest_state_for_role(role_key, state),
+        "quest_state": quests.quest_state_for_role(rep_role, state),
         "rep_applied": False,
     }
+    # §35: the location price modifier is rolled once per node — on the
+    # first meeting with a trader there. Rolling it here (not on arrival)
+    # keeps the movement/encounter dice order untouched.
+    if rep_role in trade.TRADE_ROLES:
+        economy.modifier_for_node(
+            hidden, hidden.get("current_node_id", "start"), rng,
+        )
     hidden["step"] = hidden.get("step", 0) + 1
     hidden["last_action"] = action.key
     hidden["same_action_count"] = 1
@@ -1039,6 +1144,14 @@ def _execute_dialog_action(action: Action, state: dict, rng,
                     sensory.format_sensory_report(visible)]
         )
 
+    # §35: an open shop is driven by buy_/sell_/close, not by topics.
+    if action.key == "dialog_trade_close":
+        return _close_shop(state)
+    if action.key.startswith("dialog_buy_"):
+        return _execute_trade_buy(action.key[len("dialog_buy_"):], state)
+    if action.key.startswith("dialog_sell_"):
+        return _execute_trade_sell(action.key[len("dialog_sell_"):], state)
+
     # dialog_<category>
     if engine is None:
         return error_result("no dialogue engine")
@@ -1059,7 +1172,178 @@ def _execute_dialog_action(action: Action, state: dict, rng,
     # §36: "talk" quests count a conversation with the target role.
     quests.on_talk(ds.get("role_key", ""), state)
 
+    # §35: trade opens the shop sub-mode; §9/§32: training changes skills.
+    if category == "trade":
+        return _open_shop(state, engine, rng)
+    if category == "train":
+        return _execute_train(state, engine, rng)
+
     return execute_dialog(action, state, engine, rng, category=category)
+
+
+def _close_shop(state: dict) -> ActionResult:
+    """§35: leave the goods list, stay in the dialogue."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state") or {}
+    ds["shop"] = None
+    hidden["step"] = hidden.get("step", 0) + 1
+    return ActionResult(events=[
+        "You step back from the counter.",
+        sensory.format_sensory_report(visible),
+    ])
+
+
+def _open_shop(state: dict, engine: DialogueEngine, rng) -> ActionResult:
+    """§35: run the trade reply, then open the goods list.
+
+    The npc.py bonus "trade_discount" (20% off) applies to every deal of
+    this dialogue, so it is read once, here.
+    """
+    hidden = state.setdefault("hidden", {})
+    ds = hidden.get("dialog_state") or {}
+    result = execute_dialog(
+        Action(key="dialog_trade", label="Trade"),
+        state, engine, rng, category="trade",
+    )
+
+    result_bonus = ds.get("last_bonus") or {}
+    discount = 1.0
+    if result_bonus.get("type") == "trade_discount":
+        percent = int(result_bonus.get("percent", _TRADE_DISCOUNT_DEFAULT))
+        discount = 1.0 - percent / 100.0
+
+    ds["shop"] = {"bonus": discount}
+
+    events = list(result.events)
+    hint = "The trader lays out the goods: buy, sell, or be done."
+    if events:
+        events.insert(len(events) - 1, hint)
+    else:
+        events.append(hint)
+    return ActionResult(events=events)
+
+
+def _execute_trade_buy(item: str, state: dict) -> ActionResult:
+    """§35: Burt buys one item from the open shop."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state") or {}
+    shop = ds.get("shop")
+    if not shop:
+        return error_result("no open shop")
+
+    role = _shop_role(ds)
+    if item not in trade.ROLE_SELLS.get(role, frozenset()):
+        return error_result(f"{role} does not sell {item}")
+
+    if item == "tavern_room" and hidden.get("has_room_tonight"):
+        return error_result("you already paid for a room tonight")
+
+    price = economy.buy_price(item, **_price_context(state, ds))
+    coin = int(visible.get("wallet", {}).get("coin", 0))
+    if price > coin:
+        return error_result(
+            f"not enough coin for {item}: {price} needed, {coin} in purse"
+        )
+
+    visible.setdefault("wallet", {})["coin"] = coin - price
+    hidden["step"] = hidden.get("step", 0) + 1
+
+    if item == "tavern_room":
+        # One-shot goods: a night in the tavern, not an inventory item.
+        hidden["has_room_tonight"] = True
+        events = [f"You pay {price} coin for a room for the night."]
+    else:
+        economy.add_item(visible, item)
+        events = [f"You buy {_display_name(item)} for {price} coin."]
+        if item == "staff":
+            hidden["has_staff"] = True
+
+    events.append(sensory.format_sensory_report(visible))
+    return ActionResult(events=events)
+
+
+def _execute_trade_sell(item: str, state: dict) -> ActionResult:
+    """§35: Burt sells one item (loot included) to the open shop."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state") or {}
+    shop = ds.get("shop")
+    if not shop:
+        return error_result("no open shop")
+
+    if not economy.has_item(visible, item):
+        return error_result(f"you have no {item}")
+
+    try:
+        price = economy.sell_price(item, **_price_context(state, ds))
+    except KeyError:
+        return error_result(f"nobody wants {item}")
+
+    role = _shop_role(ds)
+    economy.remove_item(visible, item, 1)
+    visible.setdefault("wallet", {})["coin"] = (
+        int(visible.get("wallet", {}).get("coin", 0)) + price
+    )
+    hidden["step"] = hidden.get("step", 0) + 1
+
+    events = [f"You sell {_display_name(item)} for {price} coin."]
+    if price == 0:
+        events.append("It is worth nothing here, but they take it anyway.")
+
+    # §9 (agreement 20.11.2026): two goblin staves sold to the necromancer
+    # and he hands over a proper staff — the trophy road to magic.
+    if role == "necromancer" and item == "goblin_staff":
+        mstate = magic.ensure_state(hidden)
+        if magic.record_loot_staff_sale(mstate):
+            economy.add_item(visible, "staff")
+            hidden["has_staff"] = True
+            events.append(
+                "He studies the goblin work, snorts, and hands you a staff."
+            )
+
+    events.append(sensory.format_sensory_report(visible))
+    return ActionResult(events=events)
+
+
+def _execute_train(state: dict, engine: DialogueEngine, rng) -> ActionResult:
+    """§9/§32: a training reply, then the skill effect.
+
+    npc.py already returns the right replica (train_offer / train_done /
+    train_locked); magic.train() decides whether the skill actually grows.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state") or {}
+    role = ds.get("role_key", "")
+
+    result = execute_dialog(
+        Action(key="dialog_train", label="Train"),
+        state, engine, rng, category="train",
+    )
+    ds["train_asked"] = True
+
+    outcome = magic.train(hidden, visible, role)
+    events = list(result.events)
+
+    if outcome.applied:
+        parts: list[str] = []
+        if outcome.granted:
+            parts.append(f"You learn the way of {outcome.granted}.")
+        if outcome.skill_name:
+            parts.append(
+                f"Skill {outcome.skill_name} "
+                f"{outcome.skill_level}/{magic.SKILL_MAX_LEVEL}."
+            )
+        if outcome.note:
+            parts.append(outcome.note.capitalize() + ".")
+        if parts:
+            events.insert(len(events) - 1, " ".join(parts))
+    elif outcome.note:
+        events.insert(len(events) - 1, outcome.note.capitalize() + ".")
+
+    return ActionResult(events=events)
 
 
 def _try_hand_in_quest(state: dict, role_key: str) -> ActionResult | None:
@@ -1222,9 +1506,10 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
 
     # Rebuild session from persisted state
     role_key = ds.get("role_key", "")
+    rep_role = ds.get("rep_role") or _rep_role(role_key)
     hp = visible.get("hp", 10)
     coins = visible.get("wallet", {}).get("coin", 100)
-    reputation_bonus = hidden.get("reputation", {}).get(role_key, 0)
+    reputation_bonus = hidden.get("reputation", {}).get(rep_role, 0)
 
     session = engine.start(
         role_key, hp=hp, coins=coins,
@@ -1254,6 +1539,8 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
     ds["anger_lock_until"] = session.anger_lock_until
     ds["bonus_used"] = session.bonus_used
     ds["quest_state"] = session.quest_state
+    # §35: the trade bonus of this reply must survive into the shop mode.
+    ds["last_bonus"] = result.bonus
 
     # Advance turn counter
     hidden["step"] = hidden.get("step", 0) + 1
@@ -1261,7 +1548,7 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
     # §16: one reputation change per dialogue, on the first reply only.
     if cat not in ("exit", "quest"):
         delta = reputation.dialogue_delta(result.outcome, result.became_angry)
-        reputation.apply_dialog_rep(state, role_key, delta)
+        reputation.apply_dialog_rep(state, rep_role, delta)
 
     events = [result.text]
     if result.bonus is not None:
@@ -1618,6 +1905,10 @@ def _arrive_at_node(
         npc_spawn.ensure_npcs(hidden, loc_type, node_id, rng)
     else:
         hidden["npcs_here"] = []
+
+    # §9: the wandering mage may join the fixed role in temple / dungeon.
+    # Runs last: its dice never shift the movement or NPC spawn order.
+    npc_spawn.maybe_add_mage(hidden, loc_type, node_id, rng)
 
     return loc_type, started
 

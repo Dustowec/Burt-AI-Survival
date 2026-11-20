@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 from burt import world
+from burt import magic
 from typing import Any
 
 # ---------------------------------------------------------------------
@@ -138,6 +139,8 @@ def create_initial_state(
             "npcs_here": [],
             "events_here": [],
             "has_room_tonight": False,
+            "prices_by_node": {},
+            "price_modifier": None,
             "current_mode": "exploring",
             "dialog_state": None,
             "combat": None,
@@ -149,6 +152,7 @@ def create_initial_state(
             "has_staff": False,
             "teacher_found": False,
             "trained_by": [],
+            "magic": magic.new_state(),
             "diary": None,
             "day_log": [],
             "diary_written_today": False,
@@ -291,6 +295,19 @@ def validate_state(state: dict[str, Any]) -> None:
             f"hidden.spells.alignment must be one of {VALID_ALIGNMENTS}, "
             f"got {spells.get('alignment')!r}"
         )
+
+    # hidden: magic (§9) — optional for saves made before magic existed
+    mstate = hidden.get("magic")
+    if mstate is not None:
+        if not isinstance(mstate, dict):
+            raise ValueError("hidden.magic must be dict")
+        if "mage_met" in mstate and not isinstance(mstate["mage_met"], bool):
+            raise ValueError("hidden.magic.mage_met must be bool")
+
+    # hidden: location price modifiers (§35)
+    prices = hidden.get("prices_by_node")
+    if prices is not None and not isinstance(prices, dict):
+        raise ValueError("hidden.prices_by_node must be dict")
 
     # hidden: граф локаций (world.py shape: {type, entered, exits})
     graph = hidden.get("location_graph")

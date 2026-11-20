@@ -13,7 +13,8 @@ from burt.loop import Action, ActionResult, build_menu, execute_action
 
 
 def _state(day=1, step=0, mode="exploring", diary=None,
-           written_today=False, skipped_today=False, injected_day=0):
+           written_today=False, skipped_today=False, injected_day=0,
+           bedroll=True):
     from burt import world
     return {
         "meta": {"life": 1, "day": day, "step": step},
@@ -25,7 +26,8 @@ def _state(day=1, step=0, mode="exploring", diary=None,
                 "name": "Crossroads",
                 "exits": ["north", "east", "south", "west"],
             },
-            "inventory": [],
+            # §5: sleep is only offered with a bedroll or a paid room.
+            "inventory": [{"name": "bedroll", "count": 1}] if bedroll else [],
             "wallet": {"coin": 50},
             "skills_visible": [],
         },

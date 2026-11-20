@@ -24,11 +24,17 @@ Spawn is cached per node in hidden["npcs_by_node"], so walking away and
 coming back shows the same people. hidden["npcs_here"] is the working
 list of the current node (read by loop.build_menu).
 
+§9 teacher spawn: a wandering mage (replica key `mage_event`) shows up in
+temple / dungeon on d6 >= 5, at most once per life. The mage's element is
+rolled (1d4) at spawn time, not at training time — see magic.py.
+
 Pure core: no I/O, no asyncio, no LLM. Dice are rolled by rng (1..6).
 """
 from __future__ import annotations
 
 from typing import Callable
+
+from burt import magic
 
 Rng = Callable[[], int]
 
@@ -59,6 +65,11 @@ FIXED_LOCATIONS: frozenset[str] = frozenset({"temple", "dungeon"})
 SPARSE_LOCATIONS: frozenset[str] = frozenset({"river", "road"})
 
 RARE_ROLL_MIN = 5
+
+# §9: wandering magic teacher (`mage_event` replicas), at most once per life.
+MAGE_ROLE = "mage_event"
+MAGE_LOCATIONS: frozenset[str] = frozenset({"temple", "dungeon"})
+MAGE_SPAWN_MIN = 5
 
 
 # ---------------------------------------------------------------------
@@ -167,6 +178,53 @@ def npcs_for(hidden: dict, node_id: str) -> tuple[str, ...]:
     """Cached roles of a node (empty tuple when never generated)."""
     cache = hidden.get("npcs_by_node") or {}
     return tuple(cache.get(node_id, ()))
+
+
+# ---------------------------------------------------------------------
+# §9: wandering magic teacher
+# ---------------------------------------------------------------------
+
+def maybe_add_mage(
+    hidden: dict,
+    location_type: str,
+    node_id: str,
+    rng: Rng,
+) -> bool:
+    """Add the wandering mage to this node. True when he appears.
+
+    Rules (§9 + agreement of 20.11.2026):
+      - temple / dungeon only;
+      - d6 >= 5;
+      - at most once per life (hidden["magic"]["mage_met"]);
+      - the element is rolled (1d4) right now, at spawn time.
+
+    Runs AFTER ensure_npcs, so the fixed role (cleric / necromancer) is
+    already in place and stays in front of the list.
+    """
+    if location_type not in MAGE_LOCATIONS:
+        return False
+
+    mstate = magic.ensure_state(hidden)
+    if magic.mage_spawned(mstate):
+        return False
+
+    roll = rng()
+    _check_d6(roll, "roll_mage")
+    if roll < MAGE_SPAWN_MIN:
+        return False
+
+    roles = list(hidden.get("npcs_here") or [])
+    if MAGE_ROLE in roles:
+        return False
+    roles.append(MAGE_ROLE)
+    hidden["npcs_here"] = roles
+
+    cache = hidden.setdefault("npcs_by_node", {})
+    if isinstance(cache, dict):
+        cache[node_id] = list(roles)
+
+    magic.record_teacher_spawn(mstate, MAGE_ROLE, rng)
+    return True
 
 
 def clear_npcs(hidden: dict) -> None:

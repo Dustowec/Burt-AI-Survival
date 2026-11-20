@@ -30,6 +30,7 @@ from burt import (
     hunger,
     loop,
     llm_client,
+    magic as magic_mod,
     prompts,
     quests,
     resurrection,
@@ -120,6 +121,15 @@ def _ensure_runtime_fields(state: dict) -> None:
     hidden.setdefault("dot_effects", [])
     hidden.setdefault("pending_encounter", None)
     hidden.setdefault("encounter_revealed", False)
+    # §35 economy: price modifiers and the paid room of tonight.
+    hidden.setdefault("has_room_tonight", False)
+    hidden.setdefault("prices_by_node", {})
+    hidden.setdefault("price_modifier", None)
+    # §9 magic: state added after skill/trade wiring (old saves keep working).
+    magic_mod.ensure_state(hidden)
+
+    visible = state.setdefault("visible", {})
+    visible.setdefault("skills_visible", [])
 
 
 # ---------------------------------------------------------------------
@@ -689,6 +699,8 @@ def _do_sleep(state: dict) -> None:
     eat, res_used = hunger.reset_hunger_after_sleep()
     visible["eat"] = eat
     visible["sleep_counter"] = 0
+    # §35: a paid room is good for one night only.
+    hidden["has_room_tonight"] = False
     hidden["resurrection_used_today"] = res_used
     hidden["day"] = hidden.get("day", 1) + 1
     hidden["step"] = 0

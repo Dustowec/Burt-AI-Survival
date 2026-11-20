@@ -273,6 +273,8 @@ class TestStateMutationConsistency:
         st = make_state()
         st["visible"]["hp"] = 3
         st["hidden"]["step"] = 19
+        # §5: sleep requires a bedroll or a paid room.
+        st["visible"]["inventory"].append({"name": "bedroll", "count": 1})
         menu = build_menu(st["visible"], st)
         sleep_action = None
         for a in menu:

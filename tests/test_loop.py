@@ -103,6 +103,8 @@ class TestBuildMenuExploring:
     def test_sleep_present_at_step_19(self):
         st = make_state()
         st["hidden"]["step"] = 19
+        # §5: sleep needs a bedroll or a paid room.
+        st["visible"]["inventory"].append({"name": "bedroll", "count": 1})
         assert "sleep" in _keys(build_menu(st["visible"], st))
 
     def test_sleep_present_at_critical_hp(self):

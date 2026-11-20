@@ -200,3 +200,239 @@ def next_skill_level(current: int) -> int:
     if current < 0:
         return 1
     return current + 1
+# ============================================================
+# СОСТОЯНИЕ МАГИИ — hidden["magic"]
+# ============================================================
+#
+# Ядро выше остаётся чистым (числа и правила). Ниже — обвязка,
+# которую вызывает loop.py: она читает/пишет словари state, но
+# по-прежнему без I/O, без asyncio и без LLM.
+#
+# hidden["magic"] = {
+#     "mage_met": False,      # учитель-маг встречался в этой жизни
+#     "teachers": {},         # role -> {"element": str|None}
+#     "loot_sold": 0,         # goblin_staff, проданных чернокнижнику
+#     "granted": [],          # история выданных element/alignment
+# }
+
+# §9: третий путь к посоху (согласовано 20.11.2026) —
+# два goblin_staff, проданных чернокнижнику, и он выдаёт настоящий staff.
+LOOT_TRADES_FOR_STAFF = 2
+
+from dataclasses import dataclass
+
+
+def new_state() -> dict:
+    """Пустое состояние магии для hidden["magic"]."""
+    return {
+        "mage_met": False,
+        "teachers": {},
+        "loot_sold": 0,
+        "granted": [],
+    }
+
+
+def ensure_state(hidden: dict) -> dict:
+    """Вернуть hidden["magic"], починив отсутствующие поля.
+
+    Нужна для сейвов, созданных до появления магии.
+    """
+    mstate = hidden.get("magic")
+    if not isinstance(mstate, dict):
+        mstate = new_state()
+        hidden["magic"] = mstate
+    for key, default in new_state().items():
+        mstate.setdefault(key, default)
+    if not isinstance(mstate.get("teachers"), dict):
+        mstate["teachers"] = {}
+    if not isinstance(mstate.get("granted"), list):
+        mstate["granted"] = []
+    return mstate
+
+
+def can_teach(role: str) -> bool:
+    """§9: магии учат только mage / cleric / necromancer."""
+    return teacher_key(role) in TEACHER_KIND
+
+
+# Спавн-ключ учителя-мага — `mage_event` (replicas.json -> events),
+# а в TEACHER_KIND роль называется `mage`. Держим соответствие в одном месте.
+_TEACHER_KEY_ALIAS: dict[str, str] = {"mage_event": "mage"}
+
+
+def teacher_key(role: str) -> str:
+    """Роль учителя для TEACHER_KIND (mage_event -> mage)."""
+    return _TEACHER_KEY_ALIAS.get(role, role)
+
+
+# Названия навыков для visible["skills_visible"] (§8).
+SKILL_NAME_BY_ROLE: dict[str, str] = {
+    "mage_event": "Magic",
+    "cleric": "Magic",
+    "necromancer": "Magic",
+    "veteran": "Combat",
+}
+
+
+def record_teacher_spawn(mstate: dict, role: str, rng: Callable[[], int]) -> str | None:
+    """§9: стихия мага кидается 1d4 в момент СПАВНА учителя.
+
+    Возвращает выпавшую стихию (только для mage_event).
+    """
+    if role == "mage_event":
+        element = roll_mage_element(rng)
+        mstate["mage_met"] = True
+        mstate["teachers"][role] = {"element": element}
+        return element
+    mstate["teachers"].setdefault(role, {"element": None})
+    return None
+
+
+def teacher_element(mstate: dict, role: str) -> str | None:
+    """Стихия, которой владеет маг (None для остальных учителей)."""
+    teachers = mstate.get("teachers") or {}
+    entry = teachers.get(role) or {}
+    value = entry.get("element")
+    return value if value in ELEMENTS else None
+
+
+def mage_spawned(mstate: dict) -> bool:
+    """Маг уже встречался в этой жизни."""
+    return bool(mstate.get("mage_met"))
+
+
+# ------------------------------------------------------------
+# Слоты заклинаний
+# ------------------------------------------------------------
+
+def spell_slots(hidden: dict) -> tuple[str | None, str | None]:
+    """(element, alignment) из hidden["spells"] с защитой от мусора."""
+    spells = hidden.get("spells") or {}
+    if not isinstance(spells, dict):
+        spells = {}
+    element = spells.get("element")
+    alignment = spells.get("alignment")
+    return (
+        element if element in ELEMENTS else None,
+        alignment if alignment in ALIGNMENTS else None,
+    )
+
+
+def spells_open(hidden: dict) -> int:
+    """Сколько заклинаний открыто (0/1/2) — §9."""
+    element, alignment = spell_slots(hidden)
+    return total_spells(element, alignment)
+
+
+def cast_ready(hidden: dict, has_staff: bool) -> bool:
+    """§9: каст открыт только при всех трёх условиях.
+
+    staff + хотя бы одно заклинание + найденный учитель.
+    """
+    teacher = bool(hidden.get("teacher_found"))
+    return can_cast(has_staff, spells_open(hidden) > 0, teacher)
+
+
+# ------------------------------------------------------------
+# Трофейный посох — третий путь (§9, согласовано 20.11.2026)
+# ------------------------------------------------------------
+
+def record_loot_staff_sale(mstate: dict) -> bool:
+    """Учесть проданный goblin_staff. True — чернокнижник выдаёт staff."""
+    sold = int(mstate.get("loot_sold", 0)) + 1
+    mstate["loot_sold"] = sold
+    return sold >= LOOT_TRADES_FOR_STAFF
+# ------------------------------------------------------------
+# Обучение (§32: обучение = +1 к навыку, 1 раз за жизнь у учителя)
+# ------------------------------------------------------------
+
+@dataclass
+class TrainingOutcome:
+    """Результат одной попытки обучения."""
+
+    applied: bool
+    skill_name: str = ""
+    skill_level: int = 0
+    granted: str | None = None
+    note: str = ""
+
+
+def _bump_skill(hidden: dict, visible: dict, name: str) -> int:
+    """+1 к навыку в hidden["skills_raw"], зеркало в visible (скрыт до 1)."""
+    raw = hidden.setdefault("skills_raw", [])
+    if not isinstance(raw, list):
+        raw = []
+        hidden["skills_raw"] = raw
+
+    entry = next((e for e in raw if e.get("name") == name), None)
+    if entry is None:
+        entry = {"name": name, "level": 0}
+        raw.append(entry)
+    entry["level"] = next_skill_level(int(entry.get("level", 0)))
+
+    visible["skills_visible"] = [
+        {"name": e["name"], "level": e["level"], "max": SKILL_MAX_LEVEL}
+        for e in raw
+        if int(e.get("level", 0)) >= 1
+    ]
+    return int(entry["level"])
+
+
+def train(hidden: dict, visible: dict, role: str) -> TrainingOutcome:
+    """Обучиться у учителя (§9, §32).
+
+    Правила:
+      - один раз за жизнь у каждого учителя (hidden["trained_by"]);
+      - cleric -> light, necromancer -> dark, mage_event -> его стихия;
+      - лимит 1 стихия + 1 алигмент (can_learn_*);
+      - любой учитель ещё и поднимает навык на +1 (кап 10).
+
+    Мутирует hidden/visible — как quests.py.
+    """
+    mstate = ensure_state(hidden)
+    trained = hidden.setdefault("trained_by", [])
+    if not isinstance(trained, list):
+        trained = []
+        hidden["trained_by"] = trained
+
+    skill_name = SKILL_NAME_BY_ROLE.get(role, "")
+
+    if role in trained:
+        level = _bump_skill(hidden, visible, skill_name) if skill_name else 0
+        return TrainingOutcome(
+            applied=False, skill_name=skill_name, skill_level=level,
+            note=f"the {role} has already taught you once in this life",
+        )
+
+    kind = TEACHER_KIND.get(teacher_key(role))
+    element, alignment = spell_slots(hidden)
+    granted: str | None = None
+    note = ""
+
+    if kind == "element":
+        new_element = teacher_element(mstate, role)
+        if new_element is None:
+            note = "the mage has no element to teach"
+        elif can_learn_element(element, new_element):
+            hidden.setdefault("spells", {})["element"] = new_element
+            granted = new_element
+        else:
+            note = f"you already command another element ({element})"
+    elif kind in ALIGNMENTS:
+        if can_learn_alignment(alignment, kind):
+            hidden.setdefault("spells", {})["alignment"] = kind
+            granted = kind
+        else:
+            note = f"you already follow another path ({alignment})"
+
+    trained.append(role)
+    if can_teach(role):
+        hidden["teacher_found"] = True
+    if granted is not None:
+        mstate["granted"].append(granted)
+
+    level = _bump_skill(hidden, visible, skill_name) if skill_name else 0
+    return TrainingOutcome(
+        applied=True, skill_name=skill_name,
+        skill_level=level, granted=granted, note=note,
+    )
