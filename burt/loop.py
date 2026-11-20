@@ -35,6 +35,7 @@ from burt.dice import (
     resolve_micro_event, calculate_micro_damage,
     resolve_movement_event, resolve_bad_movement_event,
 )
+from burt.npc import DialogueEngine, Outcome
 
 
 @dataclass
@@ -109,7 +110,8 @@ _ACTION_SYNONYMS = {
 }
 
 
-def build_menu(visible: dict, state: dict) -> list[Action]:
+def build_menu(visible: dict, state: dict, *,
+               dialogue_engine: DialogueEngine | None = None) -> list[Action]:
     """Build available actions from current game state."""
     hidden = state.get("hidden", {})
     mode = hidden.get("current_mode", "exploring")
@@ -118,7 +120,19 @@ def build_menu(visible: dict, state: dict) -> list[Action]:
         return _build_combat_menu(visible, state)
 
     if mode == "dialog":
-        return [Action(key="exit_dialog", label="Exit dialogue")]
+        return _build_dialog_menu(visible, state, dialogue_engine)
+
+    # Check for NPCs in current location
+    if dialogue_engine is not None:
+        npcs_here = hidden.get("npcs_here", [])
+        if npcs_here:
+            actions: list[Action] = []
+            for role_key in npcs_here:
+                actions.append(
+                    Action(key=f"talk_to_{role_key}",
+                           label=f"Talk to {role_key}")
+                )
+            return actions
 
     # ── Micro-location exits (§11) ──────────────────────────
     micro = hidden.get("micro_location")
@@ -174,6 +188,32 @@ def build_menu(visible: dict, state: dict) -> list[Action]:
     if has_water:
         actions.append(Action(key="drink_water", label="Drink water"))
 
+    return actions
+
+
+def _build_dialog_menu(visible: dict, state: dict,
+                       engine: DialogueEngine | None) -> list[Action]:
+    """Build dialog menu from engine.available_categories(role_key)."""
+    if engine is None:
+        return [Action(key="dialog_exit", label="Leave conversation")]
+    hidden = state.get("hidden", {})
+    ds = hidden.get("dialog_state")
+    if ds is None:
+        return []
+    role_key = ds.get("role_key", "")
+    cats = engine.available_categories(role_key)
+    actions: list[Action] = []
+    for cat in sorted(cats):
+        if cat == "exit":
+            # Exit hidden when angry and lock still active
+            is_angry = ds.get("is_angry", False)
+            lock_until = ds.get("anger_lock_until")
+            turn = ds.get("turn", 0)
+            if is_angry and (lock_until is None or turn < lock_until):
+                continue
+            actions.append(Action(key="dialog_exit", label="Leave conversation"))
+        else:
+            actions.append(Action(key=f"dialog_{cat}", label=cat.capitalize()))
     return actions
 
 
@@ -440,7 +480,8 @@ def parse_choice(user_text: str, actions: list[Action]) -> Action:
     return actions[0]
 
 
-def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
+def execute_action(action: Action, state: dict, rng=None,
+                   dialogue_engine: DialogueEngine | None = None) -> ActionResult:
     """Execute an action and mutate state. Delegates to sub-modules.
 
     rng is a callable returning 1..6 (dice roll). Defaults to dice.roll_d6.
@@ -450,6 +491,17 @@ def execute_action(action: Action, state: dict, rng=None) -> ActionResult:
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
     mode = hidden.get("current_mode", "exploring")
+
+    # ---- dialog mode routing ----
+    if mode == "dialog":
+        return _execute_dialog_action(action, state, rng, dialogue_engine)
+
+    # ---- exploring mode: talk_to routing ----
+    if action.key.startswith("talk_to_"):
+        role_key = action.key[len("talk_to_"):]
+        if dialogue_engine is None:
+            return error_result(f"no dialogue engine for talk_to_{role_key}")
+        return _execute_talk_to(action, state, role_key, dialogue_engine, rng)
 
     # KNOWN ISSUES #5: block movement in combat (defensive).
     # go_back / go_forward / go_north / go_east / go_south / go_west all
@@ -968,6 +1020,129 @@ def should_sleep(visible: dict, state: dict) -> bool:
 def error_result(msg: str) -> ActionResult:
     """Create an error ActionResult."""
     return ActionResult(events=["Error: " + msg])
+
+
+def _execute_talk_to(action: Action, state: dict, role_key: str,
+                     engine: DialogueEngine, rng) -> ActionResult:
+    """Enter dialog mode with the given NPC role."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    hidden["current_mode"] = "dialog"
+    hidden["dialog_state"] = {
+        "role_key": role_key,
+        "is_angry": False,
+        "turn": 0,
+        "anger_lock_until": None,
+        "bonus_used": False,
+        "quest_state": "available",
+    }
+    hidden["step"] = hidden.get("step", 0) + 1
+    hidden["last_action"] = action.key
+    hidden["same_action_count"] = 1
+    return ActionResult(
+        events=[
+            f"You approach the {role_key}.",
+            sensory.format_sensory_report(visible),
+        ]
+    )
+
+
+def _execute_dialog_action(action: Action, state: dict, rng,
+                           engine: DialogueEngine | None) -> ActionResult:
+    """Handle dialog actions: dialog_<cat> or dialog_exit."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state")
+    if ds is None:
+        return error_result("no active dialog")
+
+    # dialog_exit
+    if action.key == "dialog_exit":
+        is_angry = ds.get("is_angry", False)
+        lock_until = ds.get("anger_lock_until")
+        turn = ds.get("turn", 0)
+        if is_angry and (lock_until is None or turn < lock_until):
+            return error_result("cannot leave while angry")
+        hidden["current_mode"] = "exploring"
+        hidden["dialog_state"] = None
+        hidden["step"] = hidden.get("step", 0) + 1
+        return ActionResult(
+            events=["You leave the conversation.",
+                    sensory.format_sensory_report(visible)]
+        )
+
+    # dialog_<category>
+    if engine is None:
+        return error_result("no dialogue engine")
+    if not action.key.startswith("dialog_"):
+        return error_result(f"unknown dialog action: {action.key}")
+    category = action.key[len("dialog_"):]
+
+    return execute_dialog(action, state, engine, rng, category=category)
+
+
+def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
+                   *, category: str | None = None) -> ActionResult:
+    """Execute one dialogue turn.
+
+    Rebuilds Session from dialog_state + visible, calls Session.say(),
+    applies Result back to state.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state")
+    if ds is None:
+        return error_result("no active dialog")
+
+    cat = category or action.key[len("dialog_"):]
+    roll = rng()
+    # second_roll: deterministic default for tests (4 = no bonus)
+    second_roll = rng()
+
+    # Rebuild session from persisted state
+    role_key = ds.get("role_key", "")
+    hp = visible.get("hp", 10)
+    coins = visible.get("wallet", {}).get("coin", 100)
+    reputation_bonus = hidden.get("reputation", {}).get(role_key, 0)
+
+    session = engine.start(
+        role_key, hp=hp, coins=coins,
+        reputation_bonus=reputation_bonus
+    )
+    # Restore anger state
+    if ds.get("is_angry", False):
+        session.is_angry = True
+        session.anger_lock_until = ds.get("anger_lock_until")
+    # Restore turn
+    session.turn = ds.get("turn", 0)
+    # Restore bonus_used
+    session.bonus_used = ds.get("bonus_used", False)
+    # Restore quest_state
+    session.quest_state = ds.get("quest_state", "available")
+
+    result = session.say(cat, roll=roll, second_roll=second_roll)
+
+    # Apply result back to state
+    visible["hp"] = session.hp
+    hidden["hp_raw"] = session.hp
+    visible["wallet"]["coin"] = session.coins
+
+    # Update dialog_state
+    ds["is_angry"] = session.is_angry
+    ds["turn"] = session.turn
+    ds["anger_lock_until"] = session.anger_lock_until
+    ds["bonus_used"] = session.bonus_used
+    ds["quest_state"] = session.quest_state
+
+    # Advance turn counter
+    hidden["step"] = hidden.get("step", 0) + 1
+
+    events = [result.text]
+    if result.bonus is not None:
+        events.append(f"Bonus: {result.bonus.get('type', '')}")
+    events.append(sensory.format_sensory_report(visible))
+
+    return ActionResult(events=events)
 
 
 def _enter_new_node(graph: dict, node_id: str, rng) -> None:

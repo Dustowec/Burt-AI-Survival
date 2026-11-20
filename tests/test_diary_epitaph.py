@@ -227,7 +227,7 @@ class TestRunTurnHistoryReset:
         st = _state(day=1, step=19)
         fake = ActionResult(events=["You sleep."], game_over=False)
 
-        def fake_execute(action, state, rng=None):
+        def fake_execute(action, state, rng=None, dialogue_engine=None):
             state["hidden"]["day"] = state["hidden"].get("day", 1) + 1
             state["hidden"]["step"] = 0
             return fake

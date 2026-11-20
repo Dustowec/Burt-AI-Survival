@@ -139,6 +139,7 @@ def create_initial_state(
             "events_here": [],
             "has_room_tonight": False,
             "current_mode": "exploring",
+            "dialog_state": None,
             "combat": None,
             "last_action": None,
             "same_action_count": 0,
@@ -204,12 +205,29 @@ def validate_state(state: dict[str, Any]) -> None:
     # visible: сон
     _require_int(visible, "sleep_counter", minimum=0, maximum=SLEEP_FORCED_AT)
 
-    # hidden: current_mode
+    # hidden: current_mode + dialog_state consistency
     if hidden.get("current_mode") not in VALID_STATES:
         raise ValueError(
             f"hidden.current_mode must be one of {VALID_STATES}, "
             f"got {hidden.get('current_mode')!r}"
         )
+    # dialog_state: None when exploring, dict when in dialog mode
+    ds = hidden.get("dialog_state")
+    if ds is not None and not isinstance(ds, dict):
+        raise ValueError(
+            f"hidden.dialog_state must be None or dict, got {type(ds).__name__}"
+        )
+    if hidden.get("current_mode") == "dialog" and ds is None:
+        raise ValueError(
+            "hidden.current_mode is 'dialog' but dialog_state is None"
+        )
+    if ds is not None:
+        for key in ("role_key", "is_angry", "turn", "anger_lock_until",
+                    "bonus_used", "quest_state"):
+            if key not in ds:
+                raise ValueError(
+                    f"dialog_state missing required key: {key!r}"
+                )
 
     # visible: кошелёк
     wallet = visible.get("wallet")

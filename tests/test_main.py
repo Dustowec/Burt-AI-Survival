@@ -481,7 +481,7 @@ class TestForcedSleepBlockedInCombat:
 
         with patch.object(main.llm_client, "call_llm", side_effect=fake_call):
             with patch.object(main.loop, "execute_action") as mock_exec:
-                def side_effect(action, state, rng=None):
+                def side_effect(action, state, rng=None, dialogue_engine=None):
                     state["hidden"]["combat"] = None
                     state["hidden"]["current_mode"] = "exploring"
                     return main.loop.ActionResult(events=["You defeated the wolf!"])

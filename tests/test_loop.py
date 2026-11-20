@@ -135,7 +135,7 @@ class TestBuildMenuDialog:
     def test_only_exit_dialog(self):
         st = make_state("dialog")
         actions = build_menu(st["visible"], st)
-        assert _keys(actions) == ["exit_dialog"]
+        assert _keys(actions) == ["dialog_exit"]
 
 
 # ─── build_menu: combat ────────────────────────────────────

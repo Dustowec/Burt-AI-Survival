@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import signal
 import sys
@@ -38,6 +39,7 @@ from burt import (
     state_io,
     search as search_mod,
 )
+from burt.npc import DialogueEngine, load_replicas
 from burt.game_logger import GameLogger
 
 
@@ -146,6 +148,21 @@ def make_new_state(
         memory=final_memory,
         memory_cause=memory_cause,
     )
+
+
+def load_dialogue_engine(
+    replicas_path: Path | None = None,
+) -> DialogueEngine | None:
+    """Load and return a DialogueEngine from replicas.json."""
+    if replicas_path is None:
+        replicas_path = Path("replicas.json")
+    if not replicas_path.exists():
+        return None
+    try:
+        return DialogueEngine(load_replicas(str(replicas_path)))
+    except (OSError, json.JSONDecodeError, KeyError):
+        logger.exception("Failed to load dialogue engine")
+        return None
 
 
 # ---------------------------------------------------------------------
@@ -321,6 +338,7 @@ async def run_turn(
     dry_run: bool,
     game_logger: GameLogger | None = None,
     epitaphs_dir: Path | None = None,
+    dialogue_engine: DialogueEngine | None = None,
 ) -> TurnResult:
     visible = state["visible"]
     hidden = state["hidden"]
@@ -384,7 +402,7 @@ async def run_turn(
         report += f"\n\nYou have done this {same + 1} times in a row. Do something else."
 
     # -- 3. Menu --------------------------------------------------
-    menu = loop.build_menu(visible, state)
+    menu = loop.build_menu(visible, state, dialogue_engine=dialogue_engine)
 
     # -- 4. Dry run: just print -----------------------------------
     if dry_run:
@@ -427,7 +445,8 @@ async def run_turn(
     if action.key == "write_diary_and_go_sleep":
         await _write_diary(state, hidden["day_log"])
 
-    result = loop.execute_action(action, state, rng=rng)
+    result = loop.execute_action(action, state, rng=rng,
+                                 dialogue_engine=dialogue_engine)
 
     _log_result_events(result)
 
@@ -597,6 +616,7 @@ async def game_loop(
     state_path: Path,
     game_logger: GameLogger | None = None,
     epitaphs_dir: Path | None = None,
+    dialogue_engine: DialogueEngine | None = None,
 ) -> None:
     rng = dice.roll_d6
     step_count = 0
@@ -606,7 +626,7 @@ async def game_loop(
         try:
             turn_result = await run_turn(
                 state, history, rng, dry_run, game_logger,
-                epitaphs_dir,
+                epitaphs_dir, dialogue_engine,
             )
             game_over = turn_result.game_over
             history = turn_result.history
@@ -744,11 +764,13 @@ async def main() -> int:
     history: list[dict] = []
     game_logger = GameLogger(Path("LOGS"))
     logger.info("GameLogger initialized at LOGS/")
+    engine = load_dialogue_engine()
     try:
         await game_loop(
             state, history, args.max_steps, args.dry_run, state_path,
             game_logger,
             epitaphs_dir=state_path.parent,
+            dialogue_engine=engine,
         )
     except KeyboardInterrupt:
         logger.info("Ctrl+C received; saving state")
