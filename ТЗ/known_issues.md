@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ 4e09a85 + working tree` · Verified: 20.11.2026 · Tests: 2382 passed
+Spec: v0.7.0 · Code: `main @ bd64999 + working tree` · Verified: 20.11.2026 · Tests: 2457 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -285,7 +285,10 @@ Implemented in `burt/reputation.py`, wired through `loop.py`.
 
 **Spec requires:** free tools — look around (once per turn, not in combat), scroll, inventory, status, remember, diary; tools must be available in dialog and combat menus too.
 
-**Also:** "re-ask once when `CHOICE` is missing" is not implemented — `parse_choice` (`loop.py:414-480`) goes straight to rfind/synonym heuristics and then to the first menu item.
+**Also:** "re-ask once when `CHOICE` is missing" is now implemented:
+`loop.parse_choice_strict` + one retry with `loop.INVALID_CHOICE_KICK` in
+`main.run_turn`, then `loop.fallback_action` (block → osmotret →
+dialog_exit → first item), new_bug §8.
 
 ### 13. Sleep availability honours bedroll / tavern room — DONE (§5) — CLOSED 20.11.2026
 
@@ -300,11 +303,17 @@ gate of the menu entry (`loop._sleep_available`).
 - **kept deviation:** below step 19 a Burt with critical HP (< 25%) may still
   sleep without a bed — see the deviations table
 
-### 14. Day counter advances during dialogue (§3) — DEVIATION
+### 14. Day counter advances during dialogue (§3) — DONE — CLOSED 20.11.2026
 
-**Evidence:** `loop.py:1039` (enter dialog, +1), `loop.py:1138` (each reply, +1), `loop.py:1068` (exit, +1).
+The whole dialogue is one action now (new_bug §1):
 
-**Spec requires:** the whole dialogue is one action; entering freezes the counter; exit is free.
+- `talk_to_*` and every dialog action (replies, quests, training, trade,
+  buys, sells, closing the shop) keep `hidden["step"]` unchanged;
+- only `dialog_exit` ticks, through the single `loop._finish_dialog`;
+- food is unavailable in dialog mode (menu and routing);
+- `Session.say()` now advances the dialogue turn, so the anger lock
+  expires and `dialog_exit` reopens after two replies;
+- tests: `test_dialogue_single_action.py`.
 
 ### 15. Start inject from the rules file is missing (§37) — NOT IMPLEMENTED
 
@@ -363,7 +372,11 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 ### 24. Documentation drift — PARTIAL
 
-`README.md` states 1697 tests, `HANDOFF-1..13`, and "new life cycle in development" (it is implemented). Both `README.md` and this file were stale before this revision.
+README was refreshed in v0.8.9-BETA: version, 2457 tests, HANDOFF-1..22,
+the finished life cycle, the new_bug mechanics and the "Что дальше"
+section now match the code. Remaining drift: the module/test lists in
+README are not exhaustive, and older HANDOFFs keep their historical
+notes.
 
 ---
 
@@ -422,11 +435,11 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 |---|---|
 | 🔴 Critical | 0 (was 4; logging, NPC spawn, role quests, trade closed) |
 | 🟠 High | 2 (was 7; reputation, magic, XP, skills and the weapon table closed) |
-| 🟡 Medium | 4 (was 5; sleep availability closed) |
+| 🟡 Medium | 3 (was 5; sleep availability and dialogue-as-one-action closed) |
 | 🟢 Low | 8 |
 | ⚪ Intentional deviations | 8 |
-| ✅ Closed | 10 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #13 sleep) |
-| **Total open** | **14** |
+| ✅ Closed | 11 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #13 sleep, #14 dialogue) |
+| **Total open** | **13** |
 
 ---
 
@@ -434,7 +447,7 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe tests/ -q     # 2382 passed
+.\.venv\Scripts\pytest.exe tests/ -q     # 2457 passed
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5

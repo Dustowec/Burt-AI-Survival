@@ -12,10 +12,14 @@ Public API:
 from __future__ import annotations
 
 import json
+import logging
 import random
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -94,6 +98,47 @@ BONUS_BY_CATEGORY: dict[str, list[tuple[str, dict[str, Any]]]] = {
     "threat": [("extra_info", {}), ("extra_goods", {})],
     "train":  [("skill", {"amount": 1})],
 }
+
+
+# ---------------------------------------------------------------------
+# 4a. BONUS TEXT (new_bug §4)
+# ---------------------------------------------------------------------
+
+# Raw bonus keys never reach the LLM: every type maps to a human line.
+BONUS_TEXTS: dict[str, str] = {
+    "bribe_accept": "The bribe succeeds.",
+    "bribe_discount": "The bribe succeeds, and the price softens.",
+    "trade_discount": "The trader lowers the price.",
+    "skill": "You feel your skill grow.",
+    "food": "They share some bread.",
+    "rumor": "They tell you a rumor.",
+    "extra_info": "They let slip something useful.",
+    "extra_goods": "They mention where to find better goods.",
+    "quest_discount": "They seem pleased with you.",
+    "quest_reward": "They seem pleased with you.",
+    "item": "They have nothing to spare right now.",
+}
+
+UNKNOWN_BONUS_TEXT: str = "The conversation shifts in your favor."
+
+
+def bonus_text(bonus: dict | None) -> str:
+    """Human-readable line for a dialogue bonus (never the raw key).
+
+    Unknown types do not break the game: they get a neutral line and a
+    WARN in the log.
+    """
+    if not bonus:
+        return ""
+    typ = bonus.get("type", "")
+    if typ == "coins":
+        amount = int(bonus.get("amount", 2))
+        return f"You get {amount} coins."
+    text = BONUS_TEXTS.get(typ)
+    if text is not None:
+        return text
+    logger.warning("Unknown dialogue bonus type: %r", typ)
+    return UNKNOWN_BONUS_TEXT
 
 
 # ============================================================
@@ -220,6 +265,11 @@ class Session:
         # --- VALIDATE ---
         assert category in self._engine.available_categories(self.role_key), \
             f"Category {category!r} not available for role {self.role_key!r}"
+
+        # Every reply is one dialogue turn. The anger lock counts these
+        # replies; without the tick it never expires and dialog_exit
+        # stays hidden forever (found by the live 80-step run).
+        self.advance_turn()
 
         # --- EXIT ---
         if category == "exit":

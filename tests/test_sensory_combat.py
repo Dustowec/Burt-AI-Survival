@@ -21,7 +21,6 @@
 привязанными к конкретным именам/ключам.
 """
 
-import re
 import pytest
 
 from burt import sensory
@@ -166,21 +165,22 @@ class TestOpponents:
 # ─── не протекает скрытое ──────────────────────────────────
 
 class TestHiddenInfo:
-    def test_no_hp_word(self):
+    def test_hp_mp_line_present(self):
+        # new_bug §5: Burt's HP/MP are now shown in the combat report.
         k = _key_any()
         out = _report(_combat(_enemy(k)))
-        assert "HP" not in out
+        assert "HP: 10/10 | MP: 3/3" in out
+
+    def test_hp_mp_line_before_enemy(self):
+        k = _key_any()
+        out = _report(_combat(_enemy(k)))
+        assert out.index("HP:") < out.index("Enemy:")
 
     def test_no_damage_word(self):
         k = _key_any()
         out = _report(_combat(_enemy(k)))
         for word in ("урон", "Урон", "damage"):
             assert word not in out
-
-    def test_no_hp_numbers_pattern(self):
-        k = _key_any()
-        out = _report(_combat(_enemy(k)))
-        assert not re.search(r"\d+\s*/\s*\d+", out)
 
     def test_no_round_word(self):
         k = _key_any()

@@ -5,7 +5,7 @@
 посчитанный и безразличный. У Бурта нет цели — только обязанность
 действовать.
 
-**Версия:** v0.8.8-BETA · **Статус:** в разработке (TDD, 2382 теста) · **ТЗ:** v0.7.0
+**Версия:** v0.8.9-BETA · **Статус:** в разработке (TDD, 2457 тестов) · **ТЗ:** v0.7.0
 
 ---
 
@@ -22,9 +22,9 @@
    только со спальником в инвентаре или с оплаченной комнатой в таверне
    (§5); на шаге 20 сон принудительный.
 
-Умер — кубик 1d6: 6 → воскрес в том же мире с 2 HP; не 6 → game over.
-(Полный цикл «новая жизнь с переносом памяти» по спеке §6 — в разработке,
-см. HANDOFF-13 #1.)
+Умер — кубик 1d6: 6 → воскрес в том же мире с 2 HP; не 6 → новая жизнь:
+эпитафия, перенос памяти в `meta["memory"]`, `life += 1`. Финальный
+`state.json` всегда содержит последнюю жизнь (HANDOFF-21/22).
 
 После любого сна контекст LLM сбрасывается. Дневник — единственный
 способ перенести память о дне в следующий день.
@@ -41,7 +41,7 @@ E:\Butr-Ai
 ├── pytest.ini                # настройки pytest
 ├── conftest.py               # sys.path для тестов
 ├── main.py                   # точка входа (async orchestrator)
-├── HANDOFFs\                 # история разработки (HANDOFF-1..21)
+├── HANDOFFs\                 # история разработки (HANDOFF-1..22)
 ├── rules\                    # правила игры
 │   ├── Rules for player (LLM).md
 │   ├── Dice rules.md
@@ -77,7 +77,7 @@ quests.py	Квесты: выдача, прогресс, обман, цепочк
 Оркестрация
 Модуль	Что делает	§ТЗ
 llm_client.py	Async-клиент LM Studio / OpenAI, usage-логи, fallback system->user для Gemma	§1, §31
-loop.py	Игровой цикл: build_menu, parse_choice (rfind + синонимы), execute_action, should_sleep.	§26
+loop.py	Игровой цикл: build_menu, parse_choice_strict + retry, execute_action, should_sleep.	§26
 
 Тесты
 tests
@@ -115,10 +115,19 @@ tests
 ├── test_combat_order.py        # order of events in combat (ambush → Burt → enemy)
 ├── test_encounter_reveal.py    # on-entry encounters, ambush, reveal
 ├── test_loop_combat_start.py   # combat start, movement, TZ-10 spawn cap
+├── test_dialogue_single_action.py  # диалог = одно действие, anger lock
+├── test_date_format.py       # единый формат "N day"
+├── test_blessing_text.py     # restores / washes over по реальной дельте
+├── test_bonus_text.py        # бонусы без сырых ключей, coins/food
+├── test_combat_sensory_hp.py # HP/MP в [COMBAT], free strike
+├── test_go_back_text.py      # имя локации вместо node id
+├── test_sleep_parity.py      # добровольный = принудительный сон
+├── test_invalid_choice_retry.py  # retry + fallback CHOICE
+├── test_state_persistence_lives.py  # последняя жизнь в state.json
 └── test_integration.py       # сквозные циклы sensory -> LLM -> execute
 Запуск:
 .\.venv\Scripts\pytest.exe tests/ -q
-# Ожидается: 2222 passed.
+# Ожидается: 2457 passed.
 
 Три слоя проекта
 Ядро — чистые расчёты без диска и сети. Быстрые юнит-тесты.
@@ -144,7 +153,7 @@ I/O — работа с файлами. Тесты через tmp_path.
 
 Враги нумеруются: wolf_1, wolf_2.
 
-Сенсорный отчёт в бою: [COMBAT] + противники + Your turn. + меню.
+Сенсорный отчёт в бою: [COMBAT] + HP/MP Бурта + противники + Your turn. + меню.
 
 HP врагов и урон не показываются. Мёртвые помечаются (Dead).
 
@@ -200,17 +209,38 @@ diary_skipped_today=True. Утром на первом ходе нового д�
 
 Файлы на Windows должны быть в UTF-8 без BOM.
 
-Что дальше (из HANDOFF-13)
-Life counter + memory summary — инкремент meta["life"], перенос памяти,
-полный цикл «новая жизнь» (спека §6). Разблокирует MEMORY_SUMMARY_PROMPT.
+Что дальше
 
-dice.py — плоский урон микрособытий по обновлённой спеке (камень 1-2,
-дерево 2-3, молния 3-4) вместо 1d6/2d6/3d6.
+Актуальный список — ТЗ/known_issues.md (13 открытых пунктов на 20.11.2026).
+В v0.8.9-BETA закрыты: диалог как одно действие, единый формат даты,
+тексты благословения и бонусов, HP/MP в бою, go_back без внутренних id,
+единый helper сна, retry для невалидного CHOICE и сохранение последней
+жизни в state.json.
 
-Дедупликация констант голода — state.py импортирует из hunger.py.
+Приоритеты:
 
-Non-combat actions в бою — search/sleep/eat/drink/osmotret всё ещё
-срабатывают до проверки mode == "combat". Defensive, не срочно.
+1. Вера, статусы и преступления (§33, §34) — #10. Паладин / еретик /
+   убийца, цепочки K1–K2–K3, наказание богом 1×level, блок квестов за
+   убийство жителя.
+2. Случайные события и эффекты (§10, §13) — #11. Проповедник
+   (проклятие/благословение на 3 хода), события в пути, редкие спавны.
+3. Полное меню тулз (§26) — #12. inventory / status / remember / diary
+   в exploring, dialog и combat; повторный запрос CHOICE уже сделан.
+4. Стартовый инжект из rules/*.md (§37) — #15.
+5. Файлы состояния §2 — #16. memory.json / quests.json / diary.json,
+   5-дневная суммаризация (сейчас дневник — одна строка в hidden).
+6. Бандит: требование денег на первом ходу (§23) — #17.
+7. Теги врагов (§21) — #18: passive (медведь), wounded_prey (кабан).
+8. Техдолг — #20, #21, #22, #24: дубли констант голода, мёртвые
+   config-флаги, role key mismatch (peasant_woman / mage_event), drift
+   документации, defensive-проверки режима для osmotret/eat/sleep/drink
+   в бою.
+
+Осознанно оставлено:
+- 2–4 выхода на ноду вместо 4 соседей (§17, #23);
+- сон при HP < 25% до шага 19;
+- рост небоевых навыков: спека не задаёт per-use рост (HANDOFF-21);
+- английский UI, промпты и реплики.
 
 Принципы разработки
 TDD обязателен. Сначала тесты (спецификация поведения по ТЗ), потом имплементация.

@@ -67,8 +67,8 @@ class TestMovementEventsIntegration:
         assert st["visible"]["wallet"]["coin"] == 51
         assert any("You found some money." in ev for ev in result.events)
 
-    def test_roll_6_produces_blessing(self):
-        """Movement roll=6 -> hp/mp restored (capped), event in results."""
+    def test_roll_6_full_hp_mp_washes_over(self):
+        """Movement roll=6 at full HP/MP -> no restore, neutral text."""
         st = make_state()
         # north->road(safe). rng: [move=6, ec=4, ed=4, et=4, es=4, hr=2, mr=1]
         rng = _seq_rng([6, 4, 4, 4, 4, 2, 1])
@@ -78,7 +78,23 @@ class TestMovementEventsIntegration:
         assert st["hidden"]["hp_raw"] == 10
         assert st["visible"]["mp"] == 3
         assert st["hidden"]["mp_raw"] == 3
-        assert any("A blessing restores your vitality." in ev for ev in result.events)
+        assert any("A blessing washes over you." in ev for ev in result.events)
+        assert not any("restores your vitality" in ev for ev in result.events)
+
+    def test_roll_6_wounded_restores(self):
+        """Movement roll=6 with a real delta -> 'restores', HP/MP grow."""
+        st = make_state()
+        st["visible"]["hp"] = 7
+        st["visible"]["mp"] = 2
+        st["hidden"]["hp_raw"] = 7
+        st["hidden"]["mp_raw"] = 2
+        # north->road(safe). rng: [move=6, ec=4, ed=4, et=4, es=4, hr=2, mr=1]
+        rng = _seq_rng([6, 4, 4, 4, 4, 2, 1])
+        result = execute_action(Action("go_north", "Go"), st, rng=rng)
+        assert st["visible"]["hp"] > 7
+        assert st["visible"]["mp"] > 2
+        assert any("A blessing restores your vitality." in ev
+                   for ev in result.events)
 
     def test_roll_3_or_4_no_positive_event(self):
         """Rolls 3-4: normal movement, no positive event."""

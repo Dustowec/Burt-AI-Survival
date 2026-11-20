@@ -38,13 +38,14 @@ from burt import trade
 from burt import weapons
 from burt import skills
 from burt import magic
+from burt import state as state_mod
 from burt.combat import CombatState, BurtStats
 from burt.bestiary import ENEMIES
 from burt.dice import (
     resolve_micro_event, calculate_micro_damage,
     resolve_movement_event, resolve_bad_movement_event,
 )
-from burt.npc import DialogueEngine, Outcome
+from burt.npc import DialogueEngine, Outcome, bonus_text
 
 
 @dataclass
@@ -104,6 +105,16 @@ _ENCOUNTER_LOCATIONS = {
 }
 _AMBUSH_LOCATION = "thicket"  # §32: ambush at thicket
 _COMBAT_HEADER = "[COMBAT]"  # first line of sensory.format_combat_report
+
+# new_bug §3: blessing text depends on the REAL delta.
+BLESSING_RESTORES = "A blessing restores your vitality."
+BLESSING_WASHES = "A blessing washes over you."
+
+# new_bug §8: one re-ask when the model returns no valid choice.
+INVALID_CHOICE_KICK = (
+    "Hey, you bumpkin! What are you doing?! "
+    "Think again and pick a valid action from the menu."
+)
 
 # §9/§16: replica keys of spawned non-role NPCs mapped to a reputation role.
 # "mage_event" teaches elements (§9) but reputation is tracked per §16 role.
@@ -448,22 +459,10 @@ def _execute_go_away(
             hp_max=visible.get("hp_max", 10),
             mp_max=visible.get("mp_max", 3),
         )
-        if ev.event_type == "loot":
-            visible["wallet"]["coin"] += ev.coin
-        elif ev.event_type == "blessing":
-            current_hp = visible.get("hp", 10)
-            new_hp = min(current_hp + ev.hp_restore,
-                         visible.get("hp_max", 10))
-            visible["hp"] = new_hp
-            hidden["hp_raw"] = new_hp
-            current_mp = visible.get("mp", 3)
-            new_mp = min(current_mp + ev.mp_restore,
-                         visible.get("mp_max", 3))
-            visible["mp"] = new_mp
-            hidden["mp_raw"] = new_mp
-        if ev.description:
+        text = _apply_movement_event(ev, visible, hidden)
+        if text:
             events_list = [sensory.format_sensory_report(visible)]
-            events_list.insert(0, ev.description)
+            events_list.insert(0, text)
             return ActionResult(
                 events=events_list,
                 direction_moved=direction,
@@ -475,52 +474,41 @@ def _execute_go_away(
     )
 
 
-def parse_choice(user_text: str, actions: list[Action]) -> Action:
-    """Parse LLM response and return the chosen Action.
+def _match_choice_value(choice: str, actions: list[Action]) -> Action | None:
+    """Strict match of one CHOICE value: index, key, label, substring."""
+    # numeric index
+    try:
+        idx = int(choice)
+        if 0 <= idx < len(actions):
+            return actions[idx]
+    except ValueError:
+        pass
 
-    Strategy (in order):
-    1. Look for a line starting with "CHOICE:" (case-insensitive).
-    2. Fallback: find any action label/key/synonym mentioned in text.
-       If multiple mentioned, the LAST one (rfind) wins.
-    3. Fallback: first action (index 0).
-    """
-    if not actions:
-        return Action(key="osmotret", label="Look around")
+    choice_lower = choice.lower()
 
-    # 1. CHOICE: prefix
-    for line in user_text.splitlines():
-        stripped = line.strip()
-        if stripped.upper().startswith("CHOICE:"):
-            choice = stripped[len("CHOICE:"):].strip()
+    # action key (e.g. "attack_wolf_1")
+    for action in actions:
+        if action.key.lower() == choice_lower:
+            return action
 
-            # 1a. numeric index
-            try:
-                idx = int(choice)
-                if 0 <= idx < len(actions):
-                    return actions[idx]
-            except ValueError:
-                pass
+    # label match (e.g. "Attack wolf")
+    for action in actions:
+        if action.label.lower() == choice_lower:
+            return action
 
-            # 1b. action key (e.g. "attack_wolf_1")
-            choice_lower = choice.lower()
-            for action in actions:
-                if action.key.lower() == choice_lower:
-                    return action
+    # substring: choice contains key or label
+    for action in actions:
+        if action.key.lower() in choice_lower:
+            return action
+        if action.label.lower() in choice_lower:
+            return action
 
-            # 1c. label match (e.g. "Attack wolf")
-            for action in actions:
-                if action.label.lower() == choice_lower:
-                    return action
+    return None
 
-            # 1d. substring: choice contains key or label
-            for action in actions:
-                if action.key.lower() in choice_lower:
-                    return action
-                if action.label.lower() in choice_lower:
-                    return action
 
-    # 2. Fallback: label/key/synonym anywhere in text (LAST match wins)
-    text_lower = user_text.lower()
+def _match_mention(text: str, actions: list[Action]) -> Action | None:
+    """Free-text fallback: label/key/synonym anywhere; LAST mention wins."""
+    text_lower = text.lower()
     best_idx = -1
     best_action = None
 
@@ -537,11 +525,158 @@ def parse_choice(user_text: str, actions: list[Action]) -> Action:
                 best_idx = idx
                 best_action = action
 
-    if best_action is not None:
-        return best_action
+    return best_action
+
+
+def parse_choice(user_text: str, actions: list[Action]) -> Action:
+    """Parse LLM response and return the chosen Action.
+
+    Lenient parser kept for tests and as a fallback wrapper:
+    1. Look for a line starting with "CHOICE:" (case-insensitive).
+    2. Fallback: find any action label/key/synonym mentioned in text.
+       If multiple mentioned, the LAST one (rfind) wins.
+    3. Fallback: first action (index 0).
+    """
+    if not actions:
+        return Action(key="osmotret", label="Look around")
+
+    # 1. CHOICE: prefix
+    for line in user_text.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("CHOICE:"):
+            choice = stripped[len("CHOICE:"):].strip()
+            action = _match_choice_value(choice, actions)
+            if action is not None:
+                return action
+
+    # 2. Fallback: label/key/synonym anywhere in text (LAST match wins)
+    action = _match_mention(user_text, actions)
+    if action is not None:
+        return action
 
     # 3. Fallback: first action
     return actions[0]
+
+
+def parse_choice_strict(
+    user_text: str, actions: list[Action],
+) -> tuple[Action | None, str]:
+    """Strict parser for run_turn (new_bug §8).
+
+    A response is valid only when it has a CHOICE line with a valid
+    value. An explicit but invalid CHOICE is never silently replaced by
+    prose: the caller re-asks the model once.
+
+    Returns (action_or_None, reason). Empty reason on success.
+    """
+    if not actions:
+        return None, "empty menu"
+
+    for line in user_text.splitlines():
+        stripped = line.strip()
+        if not stripped.upper().startswith("CHOICE:"):
+            continue
+        choice = stripped[len("CHOICE:"):].strip()
+        if not choice:
+            return None, "empty CHOICE"
+        action = _match_choice_value(choice, actions)
+        if action is None:
+            return None, f"invalid CHOICE: {choice!r}"
+        return action, ""
+
+    # No CHOICE line at all — do not guess from prose.
+    return None, "no CHOICE line"
+
+
+def fallback_action(actions: list[Action]) -> Action:
+    """Deterministic last resort (new_bug §8).
+
+    block -> osmotret -> dialog_exit -> first menu action.
+    """
+    if not actions:
+        return Action(key="osmotret", label="Look around")
+    by_key = {a.key: a for a in actions}
+    for key in ("block", "osmotret", "dialog_exit"):
+        if key in by_key:
+            return by_key[key]
+    return actions[0]
+
+
+def _apply_movement_event(ev, visible: dict, hidden: dict) -> str:
+    """Apply a positive movement event, return the LLM-facing text.
+
+    new_bug §3: a blessing only says "restores" when HP/MP really grew;
+    at full HP/MP it says "washes over" and changes nothing.
+    """
+    if ev.event_type == "loot":
+        wallet = visible.setdefault("wallet", {})
+        wallet["coin"] = int(wallet.get("coin", 0)) + ev.coin
+        return ev.description
+
+    if ev.event_type == "blessing":
+        hp_before = int(visible.get("hp", 10))
+        mp_before = int(visible.get("mp", 3))
+        hp_after = min(hp_before + ev.hp_restore, visible.get("hp_max", 10))
+        mp_after = min(mp_before + ev.mp_restore, visible.get("mp_max", 3))
+        visible["hp"] = hp_after
+        visible["mp"] = mp_after
+        hidden["hp_raw"] = hp_after
+        hidden["mp_raw"] = mp_after
+        healed = (hp_after - hp_before) + (mp_after - mp_before)
+        return BLESSING_RESTORES if healed > 0 else BLESSING_WASHES
+
+    return ev.description
+
+
+def _apply_sleep_state(state: dict) -> None:
+    """One night: voluntary and forced sleep share this exact effect set.
+
+    new_bug §7: HP/MP to max, effects cleared, eat=False, day+1, step=0,
+    room consumed, diary flags, no pending encounter, resurrection
+    mercy renewed.
+    """
+    visible = state.setdefault("visible", {})
+    hidden = state.setdefault("hidden", {})
+
+    hp_max = visible.get("hp_max", 10)
+    mp_max = visible.get("mp_max", 3)
+    new_hp, new_mp, new_effects = sleep_mod.apply_sleep(hp_max, mp_max)
+    visible["hp"] = new_hp
+    visible["mp"] = new_mp
+    visible["effects"] = new_effects
+    hidden["hp_raw"] = new_hp
+    hidden["mp_raw"] = new_mp
+
+    eat, res_used = hunger.reset_hunger_after_sleep()
+    visible["eat"] = eat
+    visible["sleep_counter"] = 0
+    # §35: a paid room is good for one night only.
+    hidden["has_room_tonight"] = False
+    hidden["resurrection_used_today"] = res_used
+    hidden["day"] = hidden.get("day", 1) + 1
+    hidden["step"] = 0
+    visible["date"] = state_mod.format_date(hidden["day"])
+    hidden["day_log"] = []
+
+    if not hidden.get("diary_written_today", False):
+        hidden["diary"] = None
+        hidden["diary_skipped_today"] = True
+    hidden["diary_written_today"] = False
+
+    # new_bug §7: an encounter does not survive the night.
+    hidden["pending_encounter"] = None
+    hidden["encounter_revealed"] = False
+
+
+def _apply_bonus_effects(bonus: dict, visible: dict) -> None:
+    """new_bug §4: bonus text promises are backed by real state changes."""
+    typ = bonus.get("type")
+    if typ == "coins":
+        amount = int(bonus.get("amount", 2))
+        wallet = visible.setdefault("wallet", {})
+        wallet["coin"] = int(wallet.get("coin", 0)) + amount
+    elif typ == "food":
+        economy.add_item(visible, "bread")
 
 
 def execute_action(action: Action, state: dict, rng=None,
@@ -667,10 +802,10 @@ def execute_action(action: Action, state: dict, rng=None,
             ]
         hidden["step"] = hidden.get("step", 0) + 1
         hidden["day"] = hidden.get("day", 1)
-        visible["date"] = f"{hidden['day']} day(s)"
+        visible["date"] = state_mod.format_date(hidden["day"])
         return ActionResult(
             events=[
-                f"Return to {source}.",
+                f"Return to {visible['location']['name']}.",
                 sensory.format_sensory_report(visible),
             ],
         )
@@ -753,20 +888,10 @@ def execute_action(action: Action, state: dict, rng=None,
                 hp_max=visible.get("hp_max", 10),
                 mp_max=visible.get("mp_max", 3),
             )
-            if ev.event_type == "loot":
-                visible["wallet"]["coin"] += ev.coin
-            elif ev.event_type == "blessing":
-                current_hp = visible.get("hp", 10)
-                new_hp = min(current_hp + ev.hp_restore, visible.get("hp_max", 10))
-                visible["hp"] = new_hp
-                hidden["hp_raw"] = new_hp
-                current_mp = visible.get("mp", 3)
-                new_mp = min(current_mp + ev.mp_restore, visible.get("mp_max", 3))
-                visible["mp"] = new_mp
-                hidden["mp_raw"] = new_mp
-            if ev.description:
+            text = _apply_movement_event(ev, visible, hidden)
+            if text:
                 events_list = [sensory.format_sensory_report(visible)]
-                events_list.insert(0, ev.description)
+                events_list.insert(0, text)
                 return ActionResult(
                     events=events_list,
                     direction_moved=direction,
@@ -855,27 +980,7 @@ def execute_action(action: Action, state: dict, rng=None,
         return ActionResult(events=events, search_result=category.result)
 
     if action.key in ("sleep", "write_diary_and_go_sleep"):
-        hp_max = visible.get("hp_max", 10)
-        mp_max = visible.get("mp_max", 3)
-        new_hp, new_mp, new_effects = sleep_mod.apply_sleep(hp_max, mp_max)
-        visible["hp"] = new_hp
-        visible["mp"] = new_mp
-        visible["effects"] = new_effects
-        hidden["hp_raw"] = new_hp
-        hidden["mp_raw"] = new_mp
-        eat, res = hunger.reset_hunger_after_sleep()
-        visible["eat"] = eat
-        visible["sleep_counter"] = 0
-        # §35: a paid room is good for one night only.
-        hidden["has_room_tonight"] = False
-        hidden["day"] = hidden.get("day", 1) + 1
-        hidden["step"] = 0
-        visible["date"] = f"{hidden['day']} day(s)"
-        hidden["day_log"] = []
-        if not hidden.get("diary_written_today", False):
-            hidden["diary"] = None
-            hidden["diary_skipped_today"] = True
-        hidden["diary_written_today"] = False
+        _apply_sleep_state(state)
         return ActionResult(events=["You sleep.", sensory.format_sensory_report(visible)])
 
     if action.key == "eat_food":
@@ -1162,7 +1267,8 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
         economy.modifier_for_node(
             hidden, hidden.get("current_node_id", "start"), rng,
         )
-    hidden["step"] = hidden.get("step", 0) + 1
+    # new_bug §1: entering the dialogue is free; the whole dialogue is
+    # one action and only dialog_exit advances the step.
     hidden["last_action"] = action.key
     hidden["same_action_count"] = 1
     return ActionResult(
@@ -1170,6 +1276,25 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
             f"You approach the {role_key}.",
             sensory.format_sensory_report(visible),
         ]
+    )
+
+
+def _finish_dialog(state: dict) -> ActionResult:
+    """The only exit from dialog mode (new_bug §1).
+
+    Every dialogue path that closes the conversation goes through here:
+    exactly one step tick for the whole dialogue.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    hidden["current_mode"] = "exploring"
+    hidden["dialog_state"] = None
+    hidden["step"] = hidden.get("step", 0) + 1
+    # §16: the next talk may change reputation again.
+    reputation.reset_dialog_rep(state)
+    return ActionResult(
+        events=["You leave the conversation.",
+                sensory.format_sensory_report(visible)]
     )
 
 
@@ -1189,15 +1314,7 @@ def _execute_dialog_action(action: Action, state: dict, rng,
         turn = ds.get("turn", 0)
         if is_angry and (lock_until is None or turn < lock_until):
             return error_result("cannot leave while angry")
-        hidden["current_mode"] = "exploring"
-        hidden["dialog_state"] = None
-        hidden["step"] = hidden.get("step", 0) + 1
-        # §16: the next talk may change reputation again.
-        reputation.reset_dialog_rep(state)
-        return ActionResult(
-            events=["You leave the conversation.",
-                    sensory.format_sensory_report(visible)]
-        )
+        return _finish_dialog(state)
 
     # §35: an open shop is driven by buy_/sell_/close, not by topics.
     if action.key == "dialog_trade_close":
@@ -1242,7 +1359,6 @@ def _close_shop(state: dict) -> ActionResult:
     visible = state.setdefault("visible", {})
     ds = hidden.get("dialog_state") or {}
     ds["shop"] = None
-    hidden["step"] = hidden.get("step", 0) + 1
     return ActionResult(events=[
         "You step back from the counter.",
         sensory.format_sensory_report(visible),
@@ -1303,7 +1419,6 @@ def _execute_trade_buy(item: str, state: dict) -> ActionResult:
         )
 
     visible.setdefault("wallet", {})["coin"] = coin - price
-    hidden["step"] = hidden.get("step", 0) + 1
 
     if item == "tavern_room":
         # One-shot goods: a night in the tavern, not an inventory item.
@@ -1341,7 +1456,6 @@ def _execute_trade_sell(item: str, state: dict) -> ActionResult:
     visible.setdefault("wallet", {})["coin"] = (
         int(visible.get("wallet", {}).get("coin", 0)) + price
     )
-    hidden["step"] = hidden.get("step", 0) + 1
 
     events = [f"You sell {_display_name(item)} for {price} coin."]
     if price == 0:
@@ -1597,8 +1711,8 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
     # §35: the trade bonus of this reply must survive into the shop mode.
     ds["last_bonus"] = result.bonus
 
-    # Advance turn counter
-    hidden["step"] = hidden.get("step", 0) + 1
+    # new_bug §1: a dialogue reply is part of the single dialogue action;
+    # the step is advanced only by _finish_dialog (dialog_exit).
 
     # §16: one reputation change per dialogue, on the first reply only.
     if cat not in ("exit", "quest"):
@@ -1607,7 +1721,10 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
 
     events = [result.text]
     if result.bonus is not None:
-        events.append(f"Bonus: {result.bonus.get('type', '')}")
+        _apply_bonus_effects(result.bonus, visible)
+        text = bonus_text(result.bonus)
+        if text:
+            events.append(text)
     events.append(sensory.format_sensory_report(visible))
 
     return ActionResult(events=events)

@@ -260,6 +260,18 @@ class TestCombatReportInEvents:
         joined = "\n".join(result.events)
         assert "[COMBAT]" in joined
 
+    def test_ongoing_report_has_hp_mp(self):
+        # new_bug §5: the combat report carries Burt's current HP/MP.
+        state, e = _state_with_one_enemy()
+        state["hidden"]["combat"]["enemies"][0]["hp"] = 50
+        result = loop.execute_action(_attack_action(e.id), state, _rng_from([5]))
+        joined = "\n".join(result.events)
+        expected = (
+            f"HP: {state['visible']['hp']}/{state['visible']['hp_max']}"
+            f" | MP: {state['visible']['mp']}/{state['visible']['mp_max']}"
+        )
+        assert expected in joined
+
     def test_finished_no_combat_report(self):
         state, e = _state_with_one_enemy()
         state["hidden"]["combat"]["enemies"][0]["hp"] = 1

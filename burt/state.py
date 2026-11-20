@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from burt import world
 from burt import magic
 from burt import progression
@@ -67,6 +68,29 @@ STARTING_WALLET: dict[str, int] = {"coin": 50}
 
 
 # ---------------------------------------------------------------------
+# Дата — §2: один формат на всю игру
+# ---------------------------------------------------------------------
+
+_DATE_RE = re.compile(r"^\s*(\d+)\s*day(?:\(s\))?\s*$")
+
+
+def format_date(day: int) -> str:
+    """Каноническая дата: '1 day', '2 day', '7 day'.
+
+    Единственный источник формата. Никакого суффикса-множественного.
+    """
+    return f"{int(day)} day"
+
+
+def canonical_date(value: Any) -> str:
+    """Привести старую запись с суффиксом к 'N day'; прочее не трогать."""
+    match = _DATE_RE.match(str(value))
+    if match is None:
+        return str(value)
+    return format_date(int(match.group(1)))
+
+
+# ---------------------------------------------------------------------
 # Создание стартового состояния
 # ---------------------------------------------------------------------
 
@@ -113,7 +137,7 @@ def create_initial_state(
             "xp": 0,
             "eat": False,
             "sleep_counter": 0,
-            "date": "1 day",
+            "date": format_date(1),
             "effects": [],
             "location": {
                 "name": STARTING_LOCATION_NAME,

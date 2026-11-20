@@ -97,7 +97,7 @@ def _sync_meta_from_hidden(state: dict) -> None:
         meta["day"] = hidden["day"]
     visible = state.setdefault("visible", {})
     if "day" in hidden:
-        visible["date"] = f"{hidden['day']} day"
+        visible["date"] = state_mod.format_date(hidden["day"])
 
 
 def _sync_hidden_from_meta(state: dict) -> None:
@@ -132,6 +132,9 @@ def _ensure_runtime_fields(state: dict) -> None:
 
     visible = state.setdefault("visible", {})
     visible.setdefault("skills_visible", [])
+    # new_bug §2: one date format even for old saves (legacy suffix -> "N day").
+    day = hidden.get("day", state.get("meta", {}).get("day", 1))
+    visible["date"] = state_mod.format_date(day)
     # §7: level/xp for saves made before progression existed.
     progression.ensure_state(visible)
     # §8: repair skill records and re-sync the visible mirror.
@@ -496,7 +499,53 @@ async def run_turn(
     logger.info("LLM: %s", answer)
 
     # -- 6. Parse and execute (layers: interaction, tool) ----------
-    action = loop.parse_choice(answer, menu)
+    # new_bug §8: strict parse, one re-ask with a kick, then a
+    # deterministic fallback. Prose without a CHOICE line is not guessed.
+    action, parse_reason = loop.parse_choice_strict(answer, menu)
+    if action is None:
+        logger.warning(
+            "Invalid CHOICE (attempt 1/2): %s | answer=%s",
+            parse_reason, answer,
+        )
+        retry_call_uuid = (
+            trace.new_call() if (trace is not None and not dry_run) else None
+        )
+        if plugin is not None:
+            plugin.state_change("running", "waiting_llm")
+            plugin.react_exchange(
+                "llm_request", prompt=loop.INVALID_CHOICE_KICK,
+                call_uuid=retry_call_uuid,
+            )
+        try:
+            answer, history = await llm_client.call_llm(
+                _build_system_prompt(state), loop.INVALID_CHOICE_KICK, history,
+            )
+        except Exception as exc:
+            if plugin is not None:
+                plugin.die("LLM retry call failed", exc, event="llm_error",
+                           layer="react", call_uuid=retry_call_uuid)
+            raise
+        if plugin is not None:
+            plugin.state_change("waiting_llm", "running")
+            plugin.react_exchange(
+                "llm_response", response=answer, call_uuid=retry_call_uuid,
+            )
+        logger.info("LLM (retry): %s", answer)
+
+        action, parse_reason = loop.parse_choice_strict(answer, menu)
+        if action is None:
+            logger.warning(
+                "Invalid CHOICE (attempt 2/2): %s | answer=%s",
+                parse_reason, answer,
+            )
+            action = loop.fallback_action(menu)
+            fallback_used = True
+        else:
+            fallback_used = False
+        call_uuid = retry_call_uuid
+    else:
+        fallback_used = False
+
     logger.info("Action: %s (%s)", action.key, action.label)
 
     if plugin is not None:
@@ -505,14 +554,14 @@ async def run_turn(
             for line in answer.splitlines()
         )
         plugin.interaction(
-            "parse_ok" if has_choice else "parse_warn",
+            "parse_ok" if not fallback_used else "parse_warn",
             {
                 "choice_found": has_choice,
-                "fallback_used": not has_choice,
+                "fallback_used": fallback_used,
                 "action": action.key,
                 "menu_size": len(menu),
             },
-            level=plugin_level_for_parse(plugin, has_choice),
+            level=plugin_level_for_parse(plugin, not fallback_used),
             call_uuid=call_uuid,
         )
         if plugin.debug:
@@ -691,34 +740,9 @@ def _check_hunger_death(state: dict) -> str:
 
 
 def _do_sleep(state: dict) -> None:
-    visible = state["visible"]
-    hidden = state["hidden"]
-    hp_max = visible.get("hp_max", 10)
-    mp_max = visible.get("mp_max", 3)
-    new_hp, new_mp, new_effects = sleep_mod.apply_sleep(hp_max, mp_max)
-    visible["hp"] = new_hp
-    visible["mp"] = new_mp
-    visible["effects"] = new_effects
-    hidden["hp_raw"] = new_hp
-    hidden["mp_raw"] = new_mp
-
-    eat, res_used = hunger.reset_hunger_after_sleep()
-    visible["eat"] = eat
-    visible["sleep_counter"] = 0
-    # §35: a paid room is good for one night only.
-    hidden["has_room_tonight"] = False
-    hidden["resurrection_used_today"] = res_used
-    hidden["day"] = hidden.get("day", 1) + 1
-    hidden["step"] = 0
-    visible["date"] = f"{hidden['day']} day"
-    hidden["day_log"] = []
-    if not hidden.get("diary_written_today", False):
-        hidden["diary"] = None
-        hidden["diary_skipped_today"] = True
-    hidden["diary_written_today"] = False
-    hidden["pending_encounter"] = None
-    hidden["encounter_revealed"] = False
-    logger.info("Slept. day=%d step=0", hidden["day"])
+    """Forced sleep — same helper as voluntary sleep (new_bug §7)."""
+    loop._apply_sleep_state(state)
+    logger.info("Slept. day=%d step=0", state["hidden"].get("day", 1))
 
 
 # ---------------------------------------------------------------------
@@ -736,7 +760,12 @@ async def game_loop(
     dialogue_engine: DialogueEngine | None = None,
     plugin: PluginLogger | None = None,
     trace: Trace | None = None,
-) -> None:
+) -> dict:
+    """Run turns until max_steps / Ctrl+C. Returns the CURRENT state.
+
+    new_bug §0: after any number of deaths the returned state is the last
+    life, so main() saves the actual life, not life 1.
+    """
     rng = dice.roll_d6
     step_count = 0
     epitaphs_dir = epitaphs_dir or state_path.parent
@@ -808,12 +837,16 @@ async def game_loop(
             new_life = old_life + 1
 
             # Пишем память в новую жизнь из epitaphs
-            state = make_new_state(
+            new_state = make_new_state(
                 life=new_life,
                 epitaphs_dir=epitaphs_dir,
             )
-            _sync_hidden_from_meta(state)
-            _ensure_runtime_fields(state)
+            _sync_hidden_from_meta(new_state)
+            _ensure_runtime_fields(new_state)
+            # new_bug §0: replace the state in place so the caller's
+            # reference and the final save always see the current life.
+            state.clear()
+            state.update(new_state)
             history = []  # <-- wipe LLM context between lives (bug fix)
 
             # Проверяем memory_summary при жизни >= 10
@@ -827,6 +860,7 @@ async def game_loop(
             continue
 
     logger.info("Loop finished after %d turns", step_count)
+    return state
 # CLI
 # ---------------------------------------------------------------------
 
@@ -912,7 +946,7 @@ async def main() -> int:
                 config.LOG_DIR, config.CRASH_DIR, game_session.path)
     engine = load_dialogue_engine()
     try:
-        await game_loop(
+        state = await game_loop(
             state, history, args.max_steps, args.dry_run, state_path,
             game_session,
             epitaphs_dir=state_path.parent,

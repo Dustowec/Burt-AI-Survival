@@ -194,12 +194,13 @@ class TestBuy:
         assert st["visible"]["wallet"]["coin"] == 48
         assert {"name": "bread", "count": 1} in st["visible"]["inventory"]
 
-    def test_buy_advances_step(self, engine):
+    def test_buy_keeps_step(self, engine):
+        # new_bug §1: a purchase inside the dialogue does not tick.
         st = make_state(step=5)
         open_shop(st, engine)
         before = st["hidden"]["step"]
         execute_action(Action("dialog_buy_bread", "Buy bread"), st)
-        assert st["hidden"]["step"] == before + 1
+        assert st["hidden"]["step"] == before
 
     def test_buy_without_coin_is_refused(self, engine):
         st = make_state(coin=0)
@@ -341,12 +342,13 @@ class TestSell:
         # pelt 10 -> half 5 -> 5 * 0.75 = 3.75 -> 3
         assert st["visible"]["wallet"]["coin"] == 53
 
-    def test_sell_advances_step(self, engine):
+    def test_sell_keeps_step(self, engine):
+        # new_bug §1: a sale inside the dialogue does not tick.
         st = make_state(inventory=[{"name": "pelt", "count": 1}])
         open_shop(st, engine)
         before = st["hidden"]["step"]
         execute_action(Action("dialog_sell_pelt", "Sell pelt"), st)
-        assert st["hidden"]["step"] == before + 1
+        assert st["hidden"]["step"] == before
 
     def test_sell_without_open_shop(self, engine):
         st = make_state(inventory=[{"name": "pelt", "count": 1}])

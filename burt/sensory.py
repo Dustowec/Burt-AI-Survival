@@ -20,6 +20,7 @@ import config
 from burt.combat import CombatState, BurtStats, EnemyInstance
 from burt.bestiary import ENEMIES
 from burt import progression
+from burt.state import canonical_date
 
 __all__ = ["format_sensory_report", "format_combat_report"]
 
@@ -72,7 +73,7 @@ def _format_state(visible: dict) -> str:
     lines.append(_format_hunger_sleep(visible))
 
     if config.SHOW_DATE:
-        lines.append(f"Date: {visible['date']}")
+        lines.append(f"Date: {canonical_date(visible['date'])}")
 
     effects_line = _format_effects(visible.get("effects") or [])
     if effects_line is not None:
@@ -210,15 +211,17 @@ def format_combat_report(combat: CombatState, burt: BurtStats) -> str:
 
     Формат:
         [COMBAT]
-        Enemy: волк_1 (Dead), волк_2
+        HP: 6/10 | MP: 3/3
+        Enemy: wolf_1 (Dead), wolf_2
         Your turn.
 
-        attack волк_2
+        attack wolf_2
         block
         flee
 
     Правила:
-    - HP врагов НЕ показываем, урон НЕ показываем.
+    - HP/MP Бурта показываем сразу после [COMBAT] (тот же формат, что
+      в [STATE]); HP врагов и урон НЕ показываем.
     - Мёртвых помечаем "(Dead)".
     - Раунд и инициативу НЕ выводим (они в hidden).
     - Нумерация (волк_1, волк_2) — если врагов одного типа > 1.
@@ -244,6 +247,12 @@ def format_combat_report(combat: CombatState, burt: BurtStats) -> str:
             opponents.append(f"{display} (Dead)")
 
     lines = ["[COMBAT]"]
+    lines.append(_format_hp_mp({
+        "hp": burt.hp,
+        "hp_max": burt.hp_max,
+        "mp": burt.mp,
+        "mp_max": burt.mp_max,
+    }))
     lines.append("Enemy: " + ", ".join(opponents))
     lines.append("Your turn.")
 

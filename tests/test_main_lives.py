@@ -98,6 +98,8 @@ class TestHistoryWipedAfterFailedResurrection:
             # Второй вызов (новая жизнь) должен получить ПУСТОЙ history.
             assert captured[0] == dirty_history
             assert captured[1] == []  # <-- ключевой ассерт баг-фикса
+            # new_bug §0: caller's state now points at the last life.
+            assert state["meta"]["life"] == 2
         finally:
             setattr(
                 res_mod, "ResurrectionOutcome", _REAL_ResurrectionOutcome
@@ -141,7 +143,7 @@ class TestHistoryKeptAfterSuccessfulResurrection:
                      return_value="success",
                  ), \
                  patch("main.state_io.save_state"):
-                await game_loop(
+                final_state = await game_loop(
                     state,
                     dirty_history,
                     max_steps=3,
@@ -151,6 +153,9 @@ class TestHistoryKeptAfterSuccessfulResurrection:
 
             # Второй вызов идёт в той же жизни -> history не пустой.
             assert captured[1] == dirty_history
+            # new_bug §0: no new life, the same life is returned.
+            assert final_state["meta"]["life"] == 1
+            assert state["meta"]["life"] == 1
         finally:
             setattr(
                 res_mod, "ResurrectionOutcome", _REAL_ResurrectionOutcome
