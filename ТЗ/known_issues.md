@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ 8847212 + working tree` · Verified: 20.11.2026 · Tests: 2222 passed
+Spec: v0.7.0 · Code: `main @ 4e09a85 + working tree` · Verified: 20.11.2026 · Tests: 2382 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -153,27 +153,61 @@ Tests: `test_economy.py` (33), `test_trade_loop.py` (41).
 
 ## 🟠 HIGH — break progression and subsystems
 
-### 5. XP and levels do not exist (§7) — NOT IMPLEMENTED
+### 5. XP and levels — DONE (§7) — CLOSED 20.11.2026
 
-**Evidence:** `state.py:105-124` (no `level`, no `xp`), `grep '\["level"\] ='` returns nothing, while `loop.py:1248`, `1312`, `1357`, `1401` read `visible.get("level", 1)`.
+Implemented in `burt/progression.py`, wired through `state.py`, `main.py`,
+`sensory.py` and `loop._execute_combat`.
 
-**Spec requires:** `cap(level) = 10 * 1.5^(level-1)`, `kill_exp = 5`, HP +2 / MP +1 per level, base HP 10 / MP 3.
+- `visible["level"]` and `visible["xp"]` (running XP for the current life)
+- `cap(level) = 10 * 1.5^(level-1)` (exact `Fraction`), `kill_exp = 5`
+- the level is derived from cumulative thresholds, so the §7 "total kills
+  to level" table is reproduced exactly: 2, 5, 10, 17, 27, 42, 65, 99,
+  150, 227, ...
+- every level: HP +2, MP +1 (max and current, clamped)
+- `loop._award_combat_xp` awards XP for dead enemies at combat end and
+  emits `You gain N XP.` / `You reach level N.`
+- TZ-10 is now dynamic: the pack cap at `level < 5` really lifts at level 5
+- old saves: `main._ensure_runtime_fields` adds level 1 / xp 0
+- tests: `test_progression.py`, `test_progression_loop.py`
 
-**Side effect (important):** level is always 1, so the TZ-10 cap (`level < 5 -> single enemy`) is permanently active — packs of 2-3 enemies never appear in a real game.
+Note: the per-level list in §7 ("5->6: 11") contradicts its own total table
+("6: 27"); the implementation follows the total table and the cap formula.
 
-### 6. Skill system does not exist (§8) — NOT IMPLEMENTED
+### 6. Skill system — DONE (§8) — CLOSED 20.11.2026
 
-**Evidence:** `sensory.py:177-187` (`[SKILLS]` is always `empty`), `state.py:134` (`skills_raw` stays `[]`), `loop.py:999-1005` (`master`/`modifier` always 0).
+Implemented in `burt/skills.py`, `burt/weapons.py`, `burt/combat.py`,
+`burt/loop.py` and `burt/magic.py`.
 
-**Spec requires:** 10 skills, +1 to the die roll per 5 skill levels, +1 to damage range per 2 weapon-mastery levels, mastery thresholds 5 and 10, skills hidden until 1/10, training = +1 skill once per life.
+- 10 skills: Sword / Club / Spear / Magic + Smithing / Stealth / Search /
+  Eloquence / Intimidation / Deception
+- weapon mastery is counted per STRIKE, not per hit: 30 strikes for level 1,
+  curve x1.5 (`skills.strikes_to_next`)
+- +1 to the die roll per 5 skill levels (+2 at level 10); +1 to the damage
+  range per 2 weapon-mastery levels (`skills.modifier`, `skills.range_bonus`)
+- mastery thresholds 5 / 10 are passed to `dice.resolve_attack` as `master`
+- skills stay hidden until level 1 (`visible["skills_visible"]`)
+- training gives +1 level (`magic.train` -> `skills.award_level`); the veteran
+  now teaches a random weapon skill (sword / club / spear) instead of the
+  legacy "Combat" placeholder
+- `skills.ensure_state` repairs old records and re-syncs the visible mirror
+- tests: `test_skills.py`, `test_combat_equipment.py`
 
-### 7. Weapon damage table does not exist (§20) — NOT IMPLEMENTED
+Note: non-combat skills are registered and stored, but §8 defines no per-use
+growth for them; they can only be raised by training or quests (future work).
 
-**Evidence:** `combat.py:119-120` (`damage_min=1`, `damage_max=2` defaults); `dice.py` has no weapon table.
+### 7. Weapon damage table — DONE (§20) — CLOSED 20.11.2026
 
-**Spec requires:** damage table for 10 weapon types, quality shifts the range by +/-1, mastery modifiers, ban on non-humanoid weapons (moot without weapons).
+Implemented in `burt/weapons.py`, wired through `loop._build_burt_stats`.
 
-**Code:** Burt always fights with fists; inventory weapons have no effect.
+- full §20 table: fists/stone 0-1, goblin dagger 1-2, goblin staff 0-1,
+  club 1-2, spear 1-3, swords 1-3 / 2-4 / 3-5, magic 3-6
+- quality shifts the range by -1 / 0 / +1; goblin weapons are not gradable
+- non-humanoid weapons cannot be used in combat (selling stays allowed)
+- the best usable weapon is selected automatically by effective damage range
+  (no equip menu exists in the spec)
+- `BurtStats.damage_min/max` now come from equipment; casts use the base
+  3-6 range plus Magic mastery
+- tests: `test_weapons.py`, `test_combat_equipment.py`
 
 ### 8. Magic is reachable — DONE (§9) — CLOSED 20.11.2026
 
@@ -192,8 +226,9 @@ Implemented in `burt/magic.py` (state + training), `burt/npc_spawn.py`
 - wandering mage spawn: temple / dungeon, d6 >= 5, at most once per life
   (`npc_spawn.maybe_add_mage`); runs after the fixed role, so the movement
   and NPC dice order is unchanged
-- training also raises a skill (`Magic` / `Combat`), 1/10 and up to 10 (§32,
-  §8); visible through `visible["skills_visible"]`
+- training also raises a skill (`Magic`, or a random weapon skill for the
+  veteran), 1/10 and up to 10 (§32, §8); visible through
+  `visible["skills_visible"]`
 - staff sources: buy from mage / necromancer (100 coin) or the trophy road
   (two `goblin_staff` sold to the necromancer)
 - cast itself was already implemented in combat (§23): 1 MP, 3-6 damage
@@ -238,7 +273,7 @@ Implemented in `burt/reputation.py`, wired through `loop.py`.
 
 **Spec requires:** random events on travel (bad / nothing / good), preacher event with curse/blessing for 3 turns, mage event once per life, temple/dungeon rare spawns.
 
-**Code:** no event spawner; `blessed` / `cursed` are never granted; `hidden.effects_detail` is never used; `BurtStats.modifier` is always 0.
+**Code:** no event spawner; `blessed` / `cursed` are never granted; `hidden.effects_detail` is never used; `BurtStats.modifier` now carries the weapon-skill bonus (§8), but no event/curse/blessing modifies it yet.
 
 ---
 
@@ -351,13 +386,16 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 - **Currency:** single `coin` (§19, §31) — done, enforced by `state.validate_state`.
 - **TZ-9:** encounter reveal via "look around", ambush only in thicket — done.
-- **TZ-10:** cap spawn at level < 5 — done and committed (`a32d64e`); see #5: level never grows, so the cap is effectively permanent.
+- **TZ-10:** cap spawn at level < 5 — done and committed (`a32d64e`); now dynamic, level really reaches 5+ (#5).
 - **Combat:** free strike on opening, loot after victory, cast in combat, block counters, dragon breath, shaman MP -> staff — done.
 - **Death / resurrection:** 1d6, 2 HP, new life with memory transfer — done.
 - **Diary / epitaph / memory summary (10+ lives):** wired to the LLM.
 - **`npc.py` dialogue engine:** categories, dice pairs, bonuses, anger lock, bribe, training, heretic deception — implemented; the remaining gap is spawn (#2).
 - **Trade (§35):** shop sub-mode, three-modifier prices, tavern room, loot selling, trophy staff road — done (#4).
 - **Magic (§9):** staff + spell + teacher gate, teacher spawn, light/dark lock, skill growth — done (#8).
+- **XP / levels (§7):** `visible.level/xp`, exact cap curve, kill XP, level-up stats, end-of-combat check — done (#5).
+- **Skills (§8):** 10-skill registry, weapon mastery strikes, range/roll bonuses, thresholds 5/10 — done (#6).
+- **Weapon table (§20):** damage ranges, quality, non-humanoid ban, equipment-driven `BurtStats` — done (#7).
 - **Sleep gate (§5):** bedroll or paid room via `sleep.is_sleep_available` — done (#13).
 - **`loop.py.back` leftover:** no longer present in `burt/`.
 - **Gemma 3n robotic behaviour:** model limitation, WON'T FIX.
@@ -383,12 +421,12 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 | Severity | Count |
 |---|---|
 | 🔴 Critical | 0 (was 4; logging, NPC spawn, role quests, trade closed) |
-| 🟠 High | 5 (was 7; reputation and magic closed) |
+| 🟠 High | 2 (was 7; reputation, magic, XP, skills and the weapon table closed) |
 | 🟡 Medium | 4 (was 5; sleep availability closed) |
 | 🟢 Low | 8 |
 | ⚪ Intentional deviations | 8 |
-| ✅ Closed | 7 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #8 magic, #9 reputation, #13 sleep) |
-| **Total open** | **17** |
+| ✅ Closed | 10 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #13 sleep) |
+| **Total open** | **14** |
 
 ---
 
@@ -396,7 +434,7 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe tests/ -q     # 2222 passed
+.\.venv\Scripts\pytest.exe tests/ -q     # 2382 passed
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5

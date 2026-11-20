@@ -33,7 +33,10 @@ from burt import loot
 from burt import search as search_mod
 from burt import items
 from burt import economy
+from burt import progression
 from burt import trade
+from burt import weapons
+from burt import skills
 from burt import magic
 from burt.combat import CombatState, BurtStats
 from burt.bestiary import ENEMIES
@@ -972,6 +975,18 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
     events: list[str] = list(result.events_llm)
     action_result = ActionResult(events=events)
 
+    # §8: weapon mastery counts every strike (not every hit). A cast
+    # counts as a strike for the Magic skill (§9: it works like any
+    # other combat skill).
+    if getattr(result, "burt_acted", False):
+        strike_skill: str | None = None
+        if combat_action == "attack":
+            strike_skill = weapons.weapon_skill(result.burt.weapon)
+        elif combat_action == "cast":
+            strike_skill = "Magic"
+        if strike_skill:
+            skills.record_strike(hidden, visible, strike_skill)
+
     if result.outcome == "ongoing":
         hidden["combat"] = result.combat.to_dict()
         hidden["current_mode"] = "combat"
@@ -980,8 +995,11 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
     else:
         hidden["combat"] = None
         hidden["current_mode"] = "exploring"
+        dead_enemies = [e for e in result.combat.enemies if not e.alive]
+        # §7: XP for every dead enemy, even if Burt fled afterwards.
+        if result.outcome != "burt_died" and dead_enemies:
+            _award_combat_xp(visible, hidden, len(dead_enemies), events)
         if result.outcome == "burt_won":
-            dead_enemies = [e for e in result.combat.enemies if not e.alive]
             if dead_enemies:
                 enemy_keys = [e.key for e in dead_enemies]
                 # §36: "kill" quests count every enemy killed after accept.
@@ -1030,17 +1048,54 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
     return action_result
 
 
+def _award_combat_xp(
+    visible: dict,
+    hidden: dict,
+    dead_count: int,
+    events: list[str],
+) -> None:
+    """§7: award kill XP at the end of a combat and apply level-ups."""
+    if dead_count <= 0:
+        return
+    result = progression.award_kills(visible, dead_count)
+    hidden["hp_raw"] = visible.get("hp", 0)
+    hidden["mp_raw"] = visible.get("mp", 0)
+    if result.gained > 0:
+        events.append(f"You gain {result.gained} XP.")
+    for level in range(result.old_level + 1, result.new_level + 1):
+        events.append(
+            f"You reach level {level}. "
+            f"HP +{progression.HP_PER_LEVEL}, MP +{progression.MP_PER_LEVEL}."
+        )
+
+
 def _build_burt_stats(visible: dict, hidden: dict) -> BurtStats:
     """Assemble BurtStats from visible + hidden for combat."""
     # §9: casting needs staff + spell + teacher (magic.cast_ready).
     spells_available = magic.cast_ready(hidden, _has_staff(visible, hidden))
+
+    # §8: skill levels drive weapon choice, damage range and die rolls.
+    levels = skills.level_map(hidden)
+    choice = weapons.select_weapon(visible.get("inventory") or [], levels)
+    weapon_level = int(levels.get(choice.skill, 0)) if choice.skill else 0
+    magic_level = int(levels.get("Magic", 0))
+    cast_min, cast_max = weapons.magic_damage_range(magic_level)
 
     return BurtStats(
         hp=visible["hp"],
         hp_max=visible["hp_max"],
         mp=visible["mp"],
         mp_max=visible["mp_max"],
+        damage_min=choice.damage_min,
+        damage_max=choice.damage_max,
+        master=weapon_level,
+        modifier=skills.modifier(weapon_level),
         spells_available=spells_available,
+        weapon=choice.key,
+        cast_damage_min=cast_min,
+        cast_damage_max=cast_max,
+        cast_master=magic_level,
+        cast_modifier=skills.modifier(magic_level),
     )
 
 
@@ -1324,7 +1379,7 @@ def _execute_train(state: dict, engine: DialogueEngine, rng) -> ActionResult:
     )
     ds["train_asked"] = True
 
-    outcome = magic.train(hidden, visible, role)
+    outcome = magic.train(hidden, visible, role, rng=rng)
     events = list(result.events)
 
     if outcome.applied:

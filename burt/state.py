@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 from burt import world
 from burt import magic
+from burt import progression
 from typing import Any
 
 # ---------------------------------------------------------------------
@@ -57,10 +58,10 @@ STARTING_LOCATION_NAME: str = "Crossroads"
 # Must match world.START_NODE_ID ("start").
 STARTING_NODE_ID: str = "start"
 
-STARTING_HP: int = 10
-STARTING_MP: int = 3
-STARTING_HP_PER_LEVEL: int = 2
-STARTING_MP_PER_LEVEL: int = 1
+STARTING_HP: int = progression.BASE_HP
+STARTING_MP: int = progression.BASE_MP
+STARTING_HP_PER_LEVEL: int = progression.HP_PER_LEVEL
+STARTING_MP_PER_LEVEL: int = progression.MP_PER_LEVEL
 
 STARTING_WALLET: dict[str, int] = {"coin": 50}
 
@@ -108,6 +109,8 @@ def create_initial_state(
             "hp_max": STARTING_HP,
             "mp": STARTING_MP,
             "mp_max": STARTING_MP,
+            "level": 1,
+            "xp": 0,
             "eat": False,
             "sleep_counter": 0,
             "date": "1 day",
@@ -205,6 +208,13 @@ def validate_state(state: dict[str, Any]) -> None:
         raise ValueError(
             f"visible.mp ({visible['mp']}) > mp_max ({visible['mp_max']})"
         )
+
+    # §7: level/xp are optional for saves made before progression existed;
+    # main._ensure_runtime_fields fills them on load.
+    if "level" in visible:
+        _require_int(visible, "level", minimum=1)
+    if "xp" in visible:
+        _require_int(visible, "xp", minimum=0)
 
     # visible: сон
     _require_int(visible, "sleep_counter", minimum=0, maximum=SLEEP_FORCED_AT)

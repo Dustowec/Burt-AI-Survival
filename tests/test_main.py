@@ -57,6 +57,14 @@ class TestEnsureRuntimeFields:
         main._ensure_runtime_fields(st)
         assert st["hidden"]["combat"] == {"fake": True}
 
+    def test_adds_level_and_xp_to_old_save(self):
+        st = _fresh_state()
+        del st["visible"]["level"]
+        del st["visible"]["xp"]
+        main._ensure_runtime_fields(st)
+        assert st["visible"]["level"] == 1
+        assert st["visible"]["xp"] == 0
+
 
 class TestSyncMetaFromHidden:
     def test_syncs_step(self):

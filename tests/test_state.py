@@ -104,6 +104,14 @@ def test_initial_hp_mp():
     assert v["mp_max"] == 3
 
 
+def test_initial_level_and_xp():
+    """§7: a new life starts at level 1 with zero experience."""
+    state = _default_state()
+    v = state["visible"]
+    assert v["level"] == 1
+    assert v["xp"] == 0
+
+
 def test_initial_hunger_and_sleep():
     state = _default_state()
     v = state["visible"]
@@ -302,6 +310,28 @@ def test_validate_mp_raw_must_match_visible_mp():
     state["hidden"]["mp_raw"] = 1
     with pytest.raises(ValueError):
         validate_state(state)
+
+
+def test_validate_level_zero_raises():
+    state = _default_state()
+    state["visible"]["level"] = 0
+    with pytest.raises(ValueError):
+        validate_state(state)
+
+
+def test_validate_negative_xp_raises():
+    state = _default_state()
+    state["visible"]["xp"] = -1
+    with pytest.raises(ValueError):
+        validate_state(state)
+
+
+def test_validate_old_save_without_level_is_valid():
+    """Old saves are migrated later; validation must not reject them."""
+    state = _default_state()
+    del state["visible"]["level"]
+    del state["visible"]["xp"]
+    validate_state(state)
 
 
 def test_validate_sleep_counter_out_of_range():

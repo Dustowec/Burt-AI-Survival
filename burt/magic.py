@@ -35,6 +35,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from burt import skills
+
 
 # ============================================================
 # КОНСТАНТЫ
@@ -58,7 +60,7 @@ CAST_DAMAGE_MIN = 3
 CAST_DAMAGE_MAX = 6
 
 # §8: навыки скрыты до 1/10, потолок 10.
-SKILL_MAX_LEVEL = 10
+SKILL_MAX_LEVEL = skills.MAX_LEVEL
 
 # §9: 2 заклинания за жизнь (1 стихия + 1 алигмент).
 MAX_SPELLS = 2
@@ -266,12 +268,24 @@ def teacher_key(role: str) -> str:
 
 
 # Названия навыков для visible["skills_visible"] (§8).
+# The veteran teaches a random weapon skill (§32): sword / spear / club.
+VETERAN_WEAPON_SKILLS: tuple[str, ...] = ("Sword", "Club", "Spear")
+
 SKILL_NAME_BY_ROLE: dict[str, str] = {
     "mage_event": "Magic",
     "cleric": "Magic",
     "necromancer": "Magic",
-    "veteran": "Combat",
 }
+
+
+def veteran_skill_name(rng: Callable[[], int] | None = None) -> str:
+    """§32: the veteran teaches a random weapon skill."""
+    if rng is None:
+        return VETERAN_WEAPON_SKILLS[0]
+    roll = rng()
+    if not 1 <= roll <= 6:
+        raise ValueError(f"veteran skill roll must be 1..6, got {roll!r}")
+    return VETERAN_WEAPON_SKILLS[(roll - 1) % len(VETERAN_WEAPON_SKILLS)]
 
 
 def record_teacher_spawn(mstate: dict, role: str, rng: Callable[[], int]) -> str | None:
@@ -358,32 +372,22 @@ class TrainingOutcome:
 
 
 def _bump_skill(hidden: dict, visible: dict, name: str) -> int:
-    """+1 к навыку в hidden["skills_raw"], зеркало в visible (скрыт до 1)."""
-    raw = hidden.setdefault("skills_raw", [])
-    if not isinstance(raw, list):
-        raw = []
-        hidden["skills_raw"] = raw
-
-    entry = next((e for e in raw if e.get("name") == name), None)
-    if entry is None:
-        entry = {"name": name, "level": 0}
-        raw.append(entry)
-    entry["level"] = next_skill_level(int(entry.get("level", 0)))
-
-    visible["skills_visible"] = [
-        {"name": e["name"], "level": e["level"], "max": SKILL_MAX_LEVEL}
-        for e in raw
-        if int(e.get("level", 0)) >= 1
-    ]
-    return int(entry["level"])
+    """+1 к навыку (делегирует в skills.award_level, §8)."""
+    return skills.award_level(hidden, visible, name)
 
 
-def train(hidden: dict, visible: dict, role: str) -> TrainingOutcome:
+def train(
+    hidden: dict,
+    visible: dict,
+    role: str,
+    rng: Callable[[], int] | None = None,
+) -> TrainingOutcome:
     """Обучиться у учителя (§9, §32).
 
     Правила:
       - один раз за жизнь у каждого учителя (hidden["trained_by"]);
       - cleric -> light, necromancer -> dark, mage_event -> его стихия;
+      - ветеран -> случайное владение (меч / дубина / копьё);
       - лимит 1 стихия + 1 алигмент (can_learn_*);
       - любой учитель ещё и поднимает навык на +1 (кап 10).
 
@@ -395,7 +399,10 @@ def train(hidden: dict, visible: dict, role: str) -> TrainingOutcome:
         trained = []
         hidden["trained_by"] = trained
 
-    skill_name = SKILL_NAME_BY_ROLE.get(role, "")
+    if role == "veteran":
+        skill_name = veteran_skill_name(rng)
+    else:
+        skill_name = SKILL_NAME_BY_ROLE.get(role, "")
 
     if role in trained:
         level = _bump_skill(hidden, visible, skill_name) if skill_name else 0

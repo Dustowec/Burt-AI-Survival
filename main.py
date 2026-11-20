@@ -32,10 +32,12 @@ from burt import (
     llm_client,
     magic as magic_mod,
     prompts,
+    progression,
     quests,
     resurrection,
     sensory,
     sleep as sleep_mod,
+    skills,
     state as state_mod,
     state_io,
     search as search_mod,
@@ -130,6 +132,10 @@ def _ensure_runtime_fields(state: dict) -> None:
 
     visible = state.setdefault("visible", {})
     visible.setdefault("skills_visible", [])
+    # §7: level/xp for saves made before progression existed.
+    progression.ensure_state(visible)
+    # §8: repair skill records and re-sync the visible mirror.
+    skills.ensure_state(hidden, visible)
 
 
 # ---------------------------------------------------------------------

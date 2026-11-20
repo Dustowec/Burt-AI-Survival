@@ -171,7 +171,12 @@ class TestTrainCleric:
     def test_skill_grows_and_becomes_visible(self, engine):
         st = make_state()
         train_with(st, "cleric", engine)
-        assert st["hidden"]["skills_raw"] == [{"name": "Magic", "level": 1}]
+        entry = st["hidden"]["skills_raw"][0]
+        assert entry["name"] == "Magic"
+        assert entry["level"] == 1
+        assert entry["strikes"] == 0
+        assert entry["strikes_to_next"] == 30
+        assert entry["curve"] == 1.5
         assert st["visible"]["skills_visible"] == [
             {"name": "Magic", "level": 1, "max": magic.SKILL_MAX_LEVEL},
         ]
@@ -199,6 +204,21 @@ class TestTrainAlignmentLock:
         train_with(st, "cleric", engine)
         train_with(st, "necromancer", engine)
         assert st["hidden"]["spells"]["alignment"] == "light"
+
+
+class TestTrainVeteran:
+    def test_veteran_teaches_a_weapon_skill(self, engine):
+        st = make_state()
+        train_with(st, "veteran", engine)
+        entry = st["hidden"]["skills_raw"][0]
+        assert entry["name"] in {"Sword", "Club", "Spear"}
+        assert entry["level"] == 1
+
+    def test_no_legacy_generic_combat_skill(self, engine):
+        st = make_state()
+        train_with(st, "veteran", engine)
+        names = [e["name"] for e in st["hidden"]["skills_raw"]]
+        assert "Combat" not in names
 
 
 class TestTrainMage:

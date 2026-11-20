@@ -121,6 +121,12 @@ class BurtStats:
     master: int = 0
     modifier: int = 0
     spells_available: bool = False
+    # §20/§9: which weapon the orchestrator picked and the cast profile.
+    weapon: str = "fists"
+    cast_damage_min: int = 3
+    cast_damage_max: int = 6
+    cast_master: int = 0
+    cast_modifier: int = 0
 
 
 @dataclass
@@ -130,6 +136,9 @@ class RoundResult:
     events_llm: list[str] = field(default_factory=list)
     events_tech: list[str] = field(default_factory=list)
     outcome: str = "ongoing"
+    # True when Burt's chosen action actually resolved this round.
+    # Free-strike death keeps it False: no strike was made.
+    burt_acted: bool = False
 
 
 # ─── Combat creation ───────────────────────────────────────
@@ -320,7 +329,13 @@ def _burt_cast(
     burt = replace(burt, mp=burt.mp - 1)
 
     roll = rng()
-    result = dice.resolve_attack(roll, 3, 6)
+    result = dice.resolve_attack(
+        roll,
+        burt.cast_damage_min,
+        burt.cast_damage_max,
+        master=burt.cast_master,
+        modifier=burt.cast_modifier,
+    )
     events_tech.append(
         f"burt cast at {target.id}: roll={roll} hit={result.hit} "
         f"dmg={result.damage} mp={burt.mp}"
@@ -667,12 +682,15 @@ def resolve_round(
     else:
         raise ValueError(f"unknown action: {action!r}")
 
+    # From here on Burt's action really happened (attack/block/flee/cast).
+    burt_acted = True
+
     if outcome == "burt_fled":
         combat.active = False
         return RoundResult(
             combat=combat, burt=burt,
             events_llm=events_llm, events_tech=events_tech,
-            outcome="burt_fled",
+            outcome="burt_fled", burt_acted=burt_acted,
         )
 
     if not _alive(combat):
@@ -680,7 +698,7 @@ def resolve_round(
         return RoundResult(
             combat=combat, burt=burt,
             events_llm=events_llm, events_tech=events_tech,
-            outcome="burt_won",
+            outcome="burt_won", burt_acted=burt_acted,
         )
 
     if action == "flee":
@@ -719,7 +737,7 @@ def resolve_round(
         return RoundResult(
             combat=combat, burt=burt,
             events_llm=events_llm, events_tech=events_tech,
-            outcome="burt_died",
+            outcome="burt_died", burt_acted=burt_acted,
         )
 
     if not _alive(combat):
@@ -727,12 +745,12 @@ def resolve_round(
         return RoundResult(
             combat=combat, burt=burt,
             events_llm=events_llm, events_tech=events_tech,
-            outcome="burt_won",
+            outcome="burt_won", burt_acted=burt_acted,
         )
 
     combat.round += 1
     return RoundResult(
         combat=combat, burt=burt,
         events_llm=events_llm, events_tech=events_tech,
-        outcome="ongoing",
+        outcome="ongoing", burt_acted=burt_acted,
     )

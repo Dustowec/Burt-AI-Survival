@@ -19,6 +19,7 @@ from __future__ import annotations
 import config
 from burt.combat import CombatState, BurtStats, EnemyInstance
 from burt.bestiary import ENEMIES
+from burt import progression
 
 __all__ = ["format_sensory_report", "format_combat_report"]
 
@@ -65,6 +66,9 @@ def format_sensory_report(visible: dict) -> str:
 def _format_state(visible: dict) -> str:
     lines = ["[STATE]"]
     lines.append(_format_hp_mp(visible))
+    level_line = _format_level(visible)
+    if level_line is not None:
+        lines.append(level_line)
     lines.append(_format_hunger_sleep(visible))
 
     if config.SHOW_DATE:
@@ -89,6 +93,16 @@ def _format_hp_mp(visible: dict) -> str:
         hp_part = f"HP: {_hp_qualitative(hp, hp_max)}"
 
     return f"{hp_part} | MP: {mp}/{mp_max}"
+
+
+def _format_level(visible: dict) -> str | None:
+    """§7: level and XP; hidden for old fixtures without a level field."""
+    if "level" not in visible:
+        return None
+    level = int(visible["level"])
+    xp = int(visible.get("xp", 0))
+    inside, needed = progression.level_progress(level, xp)
+    return f"Level: {level} | XP: {inside}/{needed}"
 
 
 def _hp_qualitative(hp: int, hp_max: int) -> str:

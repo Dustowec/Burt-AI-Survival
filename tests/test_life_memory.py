@@ -101,6 +101,17 @@ class TestCreateInitialStateWithMemory:
         assert s["visible"]["skills_visible"] == []
         assert s["hidden"]["skills_raw"] == []
 
+    def test_new_life_has_level_one_and_zero_xp(self):
+        """§7: level, XP and skills reset on a new life."""
+        s = create_initial_state(
+            life=2,
+            session_uuid="test-session",
+            config_hash="abc123",
+            session_started="2026-10-11T20:00:00",
+        )
+        assert s["visible"]["level"] == 1
+        assert s["visible"]["xp"] == 0
+
     def test_new_life_has_reset_quests(self):
         s = create_initial_state(
             life=2,

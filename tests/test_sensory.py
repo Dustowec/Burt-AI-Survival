@@ -107,6 +107,14 @@ class TestStateSection:
         out = sensory.format_sensory_report(_visible())
         assert "HP: 12/20 | MP: 3/5" in out
 
+    def test_level_line_when_level_present(self):
+        out = sensory.format_sensory_report(_visible(level=1, xp=5))
+        assert "Level: 1 | XP: 5/10" in out
+
+    def test_no_level_line_without_level_field(self):
+        out = sensory.format_sensory_report(_visible())
+        assert "Level:" not in out
+
     def test_hunger_full(self):
         out = sensory.format_sensory_report(_visible(eat=True))
         assert "Fed: yes" in out
