@@ -17,7 +17,8 @@
     "required": null,
     "deadline_days": null,
     "next_chain_step": "pala_2",
-    "id": "pala_1"
+    "id": "pala_1",
+    "target": null
   },
   "pala_2": {
     "chain": "pala",
@@ -26,14 +27,15 @@
     "type": "deliver",
     "deliver_items": [
       {
-        "name": "goblin_shaman_staff",
+        "name": "goblin_staff",
         "count": 5
       }
     ],
     "required": null,
     "deadline_days": 30,
     "next_chain_step": "pala_3",
-    "id": "pala_2"
+    "id": "pala_2",
+    "target": null
   },
   "pala_3": {
     "chain": "pala",
@@ -44,7 +46,8 @@
     "required": 3,
     "deadline_days": null,
     "next_chain_step": null,
-    "id": "pala_3"
+    "id": "pala_3",
+    "target": null
   },
   "heretic_1": {
     "chain": "heretic",
@@ -55,7 +58,8 @@
     "required": 3,
     "deadline_days": null,
     "next_chain_step": "heretic_2",
-    "id": "heretic_1"
+    "id": "heretic_1",
+    "target": null
   },
   "heretic_2": {
     "chain": "heretic",
@@ -66,7 +70,8 @@
     "required": 5,
     "deadline_days": 20,
     "next_chain_step": "heretic_3",
-    "id": "heretic_2"
+    "id": "heretic_2",
+    "target": null
   },
   "heretic_3": {
     "chain": "heretic",
@@ -77,6 +82,267 @@
     "required": 1,
     "deadline_days": null,
     "next_chain_step": null,
-    "id": "heretic_3"
+    "id": "heretic_3",
+    "target": null
+  },
+  "elder_1": {
+    "id": "elder_1",
+    "role": "elder",
+    "title": "Fangs of the Wolves",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "fangs",
+        "count": 5
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "elder_2": {
+    "id": "elder_2",
+    "role": "elder",
+    "title": "Goblin Trouble",
+    "type": "kill",
+    "required": 3,
+    "deliver_items": null,
+    "target": "goblin",
+    "deadline_days": null
+  },
+  "elder_3": {
+    "id": "elder_3",
+    "role": "elder",
+    "title": "Word with the Smith",
+    "type": "talk",
+    "required": 1,
+    "deliver_items": null,
+    "target": "blacksmith",
+    "deadline_days": null
+  },
+  "elder_4": {
+    "id": "elder_4",
+    "role": "elder",
+    "title": "Look at the River",
+    "type": "visit",
+    "required": 1,
+    "deliver_items": null,
+    "target": "river",
+    "deadline_days": null
+  },
+  "blacksmith_1": {
+    "id": "blacksmith_1",
+    "role": "blacksmith",
+    "title": "Five Goblin Daggers",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "goblin_dagger",
+        "count": 5
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "blacksmith_2": {
+    "id": "blacksmith_2",
+    "role": "blacksmith",
+    "title": "Three Pelts",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "pelt",
+        "count": 3
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "blacksmith_3": {
+    "id": "blacksmith_3",
+    "role": "blacksmith",
+    "title": "Two Boars",
+    "type": "kill",
+    "required": 2,
+    "deliver_items": null,
+    "target": "boar",
+    "deadline_days": null
+  },
+  "merchant_1": {
+    "id": "merchant_1",
+    "role": "merchant",
+    "title": "Shaman Staves",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "goblin_staff",
+        "count": 3
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "merchant_2": {
+    "id": "merchant_2",
+    "role": "merchant",
+    "title": "Four Goblins",
+    "type": "kill",
+    "required": 4,
+    "deliver_items": null,
+    "target": "goblin",
+    "deadline_days": null
+  },
+  "merchant_3": {
+    "id": "merchant_3",
+    "role": "merchant",
+    "title": "Into the Forest",
+    "type": "visit",
+    "required": 1,
+    "deliver_items": null,
+    "target": "forest",
+    "deadline_days": null
+  },
+  "guard_1": {
+    "id": "guard_1",
+    "role": "guard",
+    "title": "Three Bandits",
+    "type": "kill",
+    "required": 3,
+    "deliver_items": null,
+    "target": "bandit",
+    "deadline_days": null
+  },
+  "guard_2": {
+    "id": "guard_2",
+    "role": "guard",
+    "title": "Two Swords",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "low_quality_sword",
+        "count": 2
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "guard_3": {
+    "id": "guard_3",
+    "role": "guard",
+    "title": "Word with the Tavern",
+    "type": "talk",
+    "required": 1,
+    "deliver_items": null,
+    "target": "tavernkeeper",
+    "deadline_days": null
+  },
+  "fisherman_1": {
+    "id": "fisherman_1",
+    "role": "fisherman",
+    "title": "Three Pelts",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "pelt",
+        "count": 3
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "fisherman_2": {
+    "id": "fisherman_2",
+    "role": "fisherman",
+    "title": "Down to the Swamp",
+    "type": "visit",
+    "required": 1,
+    "deliver_items": null,
+    "target": "swamp",
+    "deadline_days": null
+  },
+  "fisherman_3": {
+    "id": "fisherman_3",
+    "role": "fisherman",
+    "title": "Two Wolves",
+    "type": "kill",
+    "required": 2,
+    "deliver_items": null,
+    "target": "wolf",
+    "deadline_days": null
+  },
+  "veteran_1": {
+    "id": "veteran_1",
+    "role": "veteran",
+    "title": "Three Wolves",
+    "type": "kill",
+    "required": 3,
+    "deliver_items": null,
+    "target": "wolf",
+    "deadline_days": null
+  },
+  "veteran_2": {
+    "id": "veteran_2",
+    "role": "veteran",
+    "title": "Two Good Swords",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "ordinary_sword",
+        "count": 2
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "veteran_3": {
+    "id": "veteran_3",
+    "role": "veteran",
+    "title": "Help the Smith",
+    "type": "help",
+    "required": 1,
+    "deliver_items": null,
+    "target": "blacksmith",
+    "deadline_days": null
+  },
+  "tavernkeeper_1": {
+    "id": "tavernkeeper_1",
+    "role": "tavernkeeper",
+    "title": "Four Fish",
+    "type": "deliver",
+    "required": null,
+    "deliver_items": [
+      {
+        "name": "fish",
+        "count": 4
+      }
+    ],
+    "target": null,
+    "deadline_days": null
+  },
+  "tavernkeeper_2": {
+    "id": "tavernkeeper_2",
+    "role": "tavernkeeper",
+    "title": "Word with the Fisherman",
+    "type": "talk",
+    "required": 1,
+    "deliver_items": null,
+    "target": "fisherman",
+    "deadline_days": null
+  },
+  "tavernkeeper_3": {
+    "id": "tavernkeeper_3",
+    "role": "tavernkeeper",
+    "title": "Two Goblins",
+    "type": "kill",
+    "required": 2,
+    "deliver_items": null,
+    "target": "goblin",
+    "deadline_days": null
   }
 }

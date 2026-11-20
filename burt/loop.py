@@ -26,6 +26,9 @@ from burt import sleep as sleep_mod
 from burt import dice
 from burt import spawn
 from burt import combat
+from burt import npc_spawn
+from burt import quests
+from burt import reputation
 from burt import loot
 from burt import search as search_mod
 from burt import items
@@ -122,17 +125,14 @@ def build_menu(visible: dict, state: dict, *,
     if mode == "dialog":
         return _build_dialog_menu(visible, state, dialogue_engine)
 
-    # Check for NPCs in current location
+    # ── Talk actions (§32): NPCs of this node, next to exits and search.
+    talk_actions: list[Action] = []
     if dialogue_engine is not None:
-        npcs_here = hidden.get("npcs_here", [])
-        if npcs_here:
-            actions: list[Action] = []
-            for role_key in npcs_here:
-                actions.append(
-                    Action(key=f"talk_to_{role_key}",
-                           label=f"Talk to {role_key}")
-                )
-            return actions
+        for role_key in hidden.get("npcs_here", []):
+            talk_actions.append(
+                Action(key=f"talk_to_{role_key}",
+                       label=f"Talk to {role_key}")
+            )
 
     # ── Micro-location exits (§11) ──────────────────────────
     micro = hidden.get("micro_location")
@@ -162,6 +162,7 @@ def build_menu(visible: dict, state: dict, *,
             actions.append(Action(key=f"go_{d}", label=f"Go {d}"))
 
     actions.append(Action(key="search", label="Search"))
+    actions.append(Action(key="scroll", label="Quest scroll", cost_free=True))
 
     step = hidden.get("step", 0)
     hp = visible.get("hp", 10)
@@ -188,6 +189,7 @@ def build_menu(visible: dict, state: dict, *,
     if has_water:
         actions.append(Action(key="drink_water", label="Drink water"))
 
+    actions.extend(talk_actions)
     return actions
 
 
@@ -345,30 +347,13 @@ def _execute_go_away(
         )
 
     hidden["current_node_id"] = next_id
-    next_node = graph[next_id]
 
-    if not next_node.get("entered", False):
-        _enter_new_node(graph, next_id, rng)
-        next_node = graph[next_id]
-
-    loc_type = next_node.get("type") or ""
-    visible["location"]["name"] = _resolve_location_name(
-        loc_type, next_id,
+    loc_type, started = _arrive_at_node(
+        next_id, graph, hidden, visible, rng,
     )
-    if "exits" in next_node:
-        visible["location"]["exits"] = [
-            d for d, t in next_node["exits"].items() if t
-        ]
-    else:
-        visible["location"]["exits"] = [
-            d for d in DIRECTIONS if next_node.get(d)
-        ]
 
     hidden["step"] = hidden.get("step", 0) + 1
 
-    started = _maybe_start_combat_on_enter(
-        loc_type, hidden, visible, rng,
-    )
     if started is not None:
         return ActionResult(
             events=started.events,
@@ -623,29 +608,15 @@ def execute_action(action: Action, state: dict, rng=None,
             return error_result(f"target node {target!r} missing")
         hidden["current_node_id"] = target
         hidden["micro_location"] = {"active": False}
-        node = graph[target]
-
-        # Initialize unentered target (mirrors normal go_ handler).
-        # See HANDOFF: unify transitions into _transition_to (follow-up).
-        if not node.get("entered", False):
-            _enter_new_node(graph, target, rng)
-            node = graph[target]
 
         # TZ-9: clear stale pending before checking for new encounter
         _clear_pending_encounter(hidden)
 
-        loc_type = node.get("type", "")
-        visible["location"]["name"] = _resolve_location_name(
-            loc_type, target,
+        loc_type, started = _arrive_at_node(
+            target, graph, hidden, visible, rng,
         )
-        if "exits" in node:
-            visible["location"]["exits"] = [
-                d for d, t in node["exits"].items() if t
-            ]
+
         hidden["step"] = hidden.get("step", 0) + 1
-        started = _maybe_start_combat_on_enter(
-            loc_type, hidden, visible, rng,
-        )
         if started is not None:
             return ActionResult(
                 events=started.events, game_over=started.game_over,
@@ -681,30 +652,13 @@ def execute_action(action: Action, state: dict, rng=None,
             )
 
         hidden["current_node_id"] = next_id
-        next_node = graph[next_id]
 
-        if not next_node.get("entered", False):
-            _enter_new_node(graph, next_id, rng)
-            next_node = graph[next_id]
-
-        loc_type = next_node.get("type") or ""
-        visible["location"]["name"] = _resolve_location_name(
-            loc_type, next_id,
+        loc_type, started = _arrive_at_node(
+            next_id, graph, hidden, visible, rng,
         )
-        if "exits" in next_node:
-            visible["location"]["exits"] = [
-                d for d, t in next_node["exits"].items() if t
-            ]
-        else:
-            visible["location"]["exits"] = [
-                d for d in DIRECTIONS if next_node.get(d)
-            ]
 
         hidden["step"] = hidden.get("step", 0) + 1
 
-        started = _maybe_start_combat_on_enter(
-            loc_type, hidden, visible, rng,
-        )
         if started is not None:
             return ActionResult(
                 events=started.events,
@@ -742,6 +696,9 @@ def execute_action(action: Action, state: dict, rng=None,
             events=[sensory.format_sensory_report(visible)],
             direction_moved=direction,
         )
+
+    if action.key == "scroll":
+        return ActionResult(events=[format_scroll(state)])
 
     if action.key == "search":
         loc_type = _current_location_type(hidden)
@@ -949,6 +906,10 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
             dead_enemies = [e for e in result.combat.enemies if not e.alive]
             if dead_enemies:
                 enemy_keys = [e.key for e in dead_enemies]
+                # §36: "kill" quests count every enemy killed after accept.
+                ready_quests: list[str] = []
+                for enemy_key in enemy_keys:
+                    ready_quests.extend(quests.on_enemy_killed(enemy_key, state))
                 rolls = [rng() for _ in dead_enemies]
                 drop = loot.collect_loot(enemy_keys, rolls)
                 inventory = visible.setdefault("inventory", [])
@@ -981,6 +942,10 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
                     events.append("Loot: " + "; ".join(loot_parts))
                 else:
                     events.append("Loot: nothing.")
+                for quest_id in ready_quests:
+                    events.append(
+                        f"Quest ready to report: {_quest_title(quest_id)}."
+                    )
         if result.outcome == "burt_died":
             action_result.game_over = True
 
@@ -1034,7 +999,8 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
         "turn": 0,
         "anger_lock_until": None,
         "bonus_used": False,
-        "quest_state": "available",
+        "quest_state": quests.quest_state_for_role(role_key, state),
+        "rep_applied": False,
     }
     hidden["step"] = hidden.get("step", 0) + 1
     hidden["last_action"] = action.key
@@ -1066,6 +1032,8 @@ def _execute_dialog_action(action: Action, state: dict, rng,
         hidden["current_mode"] = "exploring"
         hidden["dialog_state"] = None
         hidden["step"] = hidden.get("step", 0) + 1
+        # §16: the next talk may change reputation again.
+        reputation.reset_dialog_rep(state)
         return ActionResult(
             events=["You leave the conversation.",
                     sensory.format_sensory_report(visible)]
@@ -1078,7 +1046,160 @@ def _execute_dialog_action(action: Action, state: dict, rng,
         return error_result(f"unknown dialog action: {action.key}")
     category = action.key[len("dialog_"):]
 
+    # §36: asking for work may actually hand out a quest.
+    if category == "quest" and ds.get("quest_state") == "available":
+        return _issue_role_quest(state, rng, engine)
+
+    # §36/§18: report a finished quest to its giver.
+    if category == "quest" and ds.get("quest_state") == "in_progress":
+        handin = _try_hand_in_quest(state, ds.get("role_key", ""))
+        if handin is not None:
+            return handin
+
+    # §36: "talk" quests count a conversation with the target role.
+    quests.on_talk(ds.get("role_key", ""), state)
+
     return execute_dialog(action, state, engine, rng, category=category)
+
+
+def _try_hand_in_quest(state: dict, role_key: str) -> ActionResult | None:
+    """§18: hand in a finished quest of this role. None if not possible."""
+    hidden = state.get("hidden", {})
+    visible = state.setdefault("visible", {})
+
+    for entry in hidden.get("quests_raw", []):
+        if entry.get("status") != "active":
+            continue
+        if entry.get("giver_role") != role_key:
+            continue
+        quest_id = entry["id"]
+        from burt import quests as quests_mod
+        q = quests_mod.quest_get_active(quest_id, state)
+        if q is None:
+            continue
+
+        if q.type == "deliver":
+            if not quests_mod.deliver_ready(quest_id, state):
+                continue
+        elif q.type in ("kill", "visit", "talk", "help"):
+            if (q.progress or 0) < (q.required or 0):
+                continue
+        else:
+            continue
+
+        ok, message = quests_mod.quest_complete(quest_id, state)
+        if not ok:
+            continue
+
+        # §16: quest completed +1 for the giver's role.
+        reputation.change(state, role_key, reputation.QUEST_DELTA_OK)
+        # §36: completed quests count for "help" quests of the same role.
+        supporting = quests_mod.on_quest_completed(role_key, state)
+
+        events = [f"Quest complete: {q.title}.", message]
+        for other in supporting:
+            events.append(f"Quest ready to report: {_quest_title(other)}.")
+        events.append(sensory.format_sensory_report(visible))
+        return ActionResult(events=events)
+
+    return None
+
+
+def _issue_role_quest(state: dict, rng,
+                      engine: DialogueEngine) -> ActionResult:
+    """Give the NPC's role quest to Burt (§36).
+
+    The role is taken from dialog_state. Deadline is rolled 1d6 -> 3/5/7
+    (quests.roll_deadline). When the pool is empty, the dialog still plays
+    its "no work" line.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state")
+    role_key = (ds or {}).get("role_key", "")
+
+    quest_id = quests.pick_quest_for_role(role_key, state, rng)
+    if quest_id is None:
+        ds = hidden.setdefault("dialog_state", {})
+        ds["quest_state"] = "none"
+        return execute_dialog(
+            Action(key="dialog_quest", label="Quest"), state, engine, rng,
+            category="quest",
+        )
+
+    ok, message = quests.quest_give(quest_id, role_key, state)
+    if ok:
+        _apply_quest_deadline(quest_id, state, rng)
+        ds["quest_state"] = "in_progress"
+
+    result = execute_dialog(
+        Action(key="dialog_quest", label="Quest"), state, engine, rng,
+        category="quest",
+    )
+    if ok:
+        title = _quest_title(quest_id)
+        result.events.insert(0, f"The {role_key} gives you work: {title}.")
+    return result
+
+
+def _apply_quest_deadline(quest_id: str, state: dict, rng) -> None:
+    """§36: deadline = 1d6 -> 3/5/7 days from today."""
+    hidden = state.setdefault("hidden", {})
+    day = hidden.get("day", 1)
+    try:
+        days = quests.roll_deadline(rng)
+    except ValueError:
+        days = 5
+    for d in hidden.get("quests_raw", []):
+        if d.get("id") == quest_id and d.get("status") == "active":
+            d["deadline_day"] = day + days
+            break
+
+
+def format_scroll(state: dict) -> str:
+    """§18: quest scroll text. The giver stays hidden.
+
+    Format per quest:
+        Fangs of the Wolves — fangs 2/5, 4 days left
+    """
+    hidden = state.get("hidden", {})
+    day = hidden.get("day", 1)
+    active = [d for d in hidden.get("quests_raw", [])
+              if d.get("status") == "active"]
+
+    if not active:
+        return "[SCROLL]\nNo open quests.\n"
+
+    lines = ["[SCROLL]"]
+    for entry in active:
+        title = entry.get("title", entry.get("id", "?"))
+        items = entry.get("deliver_items") or []
+        if items:
+            req = items[0]
+            have, need = quests.deliver_progress(entry["id"], state)
+            progress = f"{req['name']} {have}/{need}"
+        else:
+            required = entry.get("required") or 0
+            done = entry.get("progress", 0)
+            progress = f"{done}/{required}"
+
+        deadline = entry.get("deadline_day")
+        if deadline is None:
+            left = "no deadline"
+        else:
+            days_left = max(0, deadline - day)
+            left = f"{days_left} days left"
+
+        lines.append(f"{title} — {progress}, {left}")
+    return "\n".join(lines) + "\n"
+
+
+def _quest_title(quest_id: str) -> str:
+    try:
+        templates = quests._load_templates()
+    except (OSError, ValueError):
+        return quest_id
+    return templates.get(quest_id, {}).get("title", quest_id)
 
 
 def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
@@ -1136,6 +1257,11 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
 
     # Advance turn counter
     hidden["step"] = hidden.get("step", 0) + 1
+
+    # §16: one reputation change per dialogue, on the first reply only.
+    if cat not in ("exit", "quest"):
+        delta = reputation.dialogue_delta(result.outcome, result.became_angry)
+        reputation.apply_dialog_rep(state, role_key, delta)
 
     events = [result.text]
     if result.bonus is not None:
@@ -1445,6 +1571,55 @@ def _handle_movement_failure(
                 )
 
     return ActionResult(events=events_list)
+
+
+def _arrive_at_node(
+    node_id: str,
+    graph: dict,
+    hidden: dict,
+    visible: dict,
+    rng,
+) -> tuple[str, "CombatStart | None"]:
+    """Single arrival point for every way of entering a node.
+
+    Used by go_*, go_forward and go_away_to_*. It:
+      1. initializes an unentered node (§17),
+      2. refreshes visible location name + exits,
+      3. spawns NPCs of this node (§32) — see npc_spawn.ensure_npcs,
+      4. rolls the encounter on entry (TZ-9).
+
+    Returns (location_type, combat_started_or_None).
+    """
+    node = graph[node_id]
+    if not node.get("entered", False):
+        _enter_new_node(graph, node_id, rng)
+        node = graph[node_id]
+
+    loc_type = node.get("type") or ""
+    visible["location"]["name"] = _resolve_location_name(loc_type, node_id)
+    if "exits" in node:
+        visible["location"]["exits"] = [
+            d for d, t in node["exits"].items() if t
+        ]
+    else:
+        visible["location"]["exits"] = [
+            d for d in DIRECTIONS if node.get(d)
+        ]
+
+    # TZ-9: encounter roll must consume its dice first (tests rely on the
+    # exact rng sequence), so NPC spawn runs after it.
+    started = _maybe_start_combat_on_enter(loc_type, hidden, visible, rng)
+
+    # §36: "visit" quests complete on entering the target location.
+    quests.on_enter_location(loc_type, {"hidden": hidden, "visible": visible})
+
+    # §32: who stands here (cached per node, never regenerated).
+    if loc_type in npc_spawn.ROLE_SPAWN:
+        npc_spawn.ensure_npcs(hidden, loc_type, node_id, rng)
+    else:
+        hidden["npcs_here"] = []
+
+    return loc_type, started
 
 
 def _resolve_location_name(loc_type: str, node_id: str) -> str:

@@ -672,8 +672,9 @@ class TestGoForwardInitTZ7:
         st["hidden"]["location_graph"]["node_5"]["exits"]["east"] = "node_77"
         existing_exits = dict(st["hidden"]["location_graph"]["node_5"]["exits"])
 
-        # No rng expected (village not in _ENCOUNTER_LOCATIONS, entered=True)
-        rng = _seq_rng([0])  # dummy, never consumed
+        # village is not an encounter location, but NPC spawn (§32) rolls
+        # for the villagers, so rng is consumed there.
+        rng = _seq_rng([3, 2, 5, 1, 6, 1, 6])
         result = execute_action(Action("go_forward", "Go forward"), st, rng=rng)
 
         node = st["hidden"]["location_graph"]["node_5"]

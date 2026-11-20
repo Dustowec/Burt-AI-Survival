@@ -65,7 +65,21 @@ Tests: `test_trace.py`, `test_plugin_log.py`, `test_game_session.py`,
 **Config flags:** `DEBUG`, `LOG_LEVEL`, `LOG_DIR`, `CRASH_DIR`, `LOG_ROTATE_HOURS`, `RING_BUFFER_SIZE`, `GAME_SESSION_PATH`, `LOG_PREVIEW_CHARS`, `LOG_QUEUE_MAXSIZE`, `LOG_FSYNC` — now consumed by `burt/plugin_log.py` and `burt/game_session.py`.
 
 
-### 2. NPC spawn by location is missing, so dialogue is unreachable in a real game (§32) — NOT IMPLEMENTED
+### 2. NPC spawn by location — DONE (§32) — CLOSED 20.11.2026
+
+Implemented in `burt/npc_spawn.py`, wired through `loop._arrive_at_node()`.
+
+- `ROLE_SPAWN` pools for village / river / road / forest / temple / dungeon
+- village: 1-3 roles by d6, no duplicates; temple/dungeon: one fixed role
+- river/road: one role, plus a rare role (cleric/necromancer) on d6 >= 5
+- spawn is cached per node in `hidden["npcs_by_node"]` — re-entry shows
+  the same people; `hidden["npcs_here"]` is the working list
+- `bandit` stays a monster (§21), never an NPC
+- exploring menu lists `talk_to_*` **together with** exits, search and
+  the quest scroll; a revealed encounter (TZ-9) still wins
+- Tests: `test_npc_spawn.py` (50), `test_npc_spawn_loop.py` (13)
+
+### 2a. NPC spawn — ORIGINAL ENTRY (kept for history) — NOT IMPLEMENTED
 
 **Evidence:** `state.py:138` (`npcs_here: []`), `loop.py:127` (reader only), `test_npc_integration.py:154` (the only writer — a test that injects `npcs_here` manually).
 
@@ -75,7 +89,29 @@ Tests: `test_trace.py`, `test_plugin_log.py`, `test_game_session.py`,
 
 **Needed:** role spawn table + fill `npcs_here` on node entry.
 
-### 3. Quests are never issued or completed (§18, §36) — CORE ONLY
+### 3. Role quests — DONE (§18, §36) — CLOSED 20.11.2026 (faith chains still open, see §33)
+
+Implemented in `burt/quests.py`, wired through `loop.py`.
+
+- 22 role quest templates added to `quests_templates.json`
+  (7 roles x 3 quests: deliver / kill / visit / talk / help)
+- deadline rolled at issue: 1d6 -> 3 / 5 / 7 days (`quests.roll_deadline`)
+- `quest_state` comes from `quests.quest_state_for_role()` instead of the
+  hardcoded "available" (`available` / `in_progress` / `none`)
+- `dialog_quest` issues the quest, and hands it in when it is finished
+  (partial hand-in keeps the §18 d6 rule inside `quest_complete`)
+- progress hooks: `on_enemy_killed`, `on_enter_location`, `on_talk`,
+  `on_quest_completed`, plus `deliver_ready` / `deliver_progress`
+- quest scroll tool (§26): free action, no step growth, giver hidden
+- `target` is now persisted on the quest record
+- Legacy data fix: `pala_2` referenced a non-existent
+  `goblin_shaman_staff`; now uses `goblin_staff`
+- Tests: `test_quests_roles.py` (35), `test_quests_hooks.py` (18),
+  `test_scroll_tool.py` (9), `test_social_integration.py` (8)
+
+**Still open:** faith chains (pala/heretic) are not issued — §33 task.
+
+### 3a. Quests — ORIGINAL ENTRY (kept for history) — CORE ONLY
 
 **Evidence:** `burt/quests.py` (423 lines) is a complete core, but `main.py:520-521` calls only `expire_blockades` / `expire_deceit_penalties`.
 
@@ -125,7 +161,20 @@ Tests: `test_trace.py`, `test_plugin_log.py`, `test_game_session.py`,
 
 **Code:** "Cast" can never appear in the combat menu in a real game.
 
-### 9. Reputation is effectively static (§16) — PARTIAL
+### 9. Reputation — DONE (§16) — CLOSED 20.11.2026
+
+Implemented in `burt/reputation.py`, wired through `loop.py`.
+
+- per-role range -10..+10 with clamping (`reputation.change`)
+- dialogue: success +1, neutral 0, fail -1, anger -2
+  (`reputation.dialogue_delta`), applied once per dialogue
+- quest completed +1 (`QUEST_DELTA_OK`); quest failed -2
+  (`QUEST_DELTA_FAIL`, ready for the fail path)
+- effects: `price_modifier()` (0.9 / 1.0 / 1.1) and `can_give_quests()`
+  (rep <= -5 blocks quests, used by `quests.quest_state_for_role`)
+- tests: `test_reputation.py` (30)
+
+### 9a. Reputation — ORIGINAL ENTRY (kept for history) — PARTIAL
 
 **Evidence:** `quests.py:276` is the only writer (`-1` on failed deception).
 
@@ -282,13 +331,13 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 | Severity | Count |
 |---|---|
-| 🔴 Critical | 3 (was 4; logging closed) |
-| 🟠 High | 7 |
+| 🔴 Critical | 1 (was 4; logging, NPC spawn, role quests closed) |
+| 🟠 High | 5 (was 7; reputation closed, quests closed) |
 | 🟡 Medium | 5 |
 | 🟢 Low | 8 |
 | ⚪ Intentional deviations | 8 |
-| ✅ Closed | 1 (#1 logging) |
-| **Total open** | **23** |
+| ✅ Closed | 4 (#1 logging, #2 NPC spawn, #3 role quests, #9 reputation) |
+| **Total open** | **19** |
 
 ---
 
@@ -296,9 +345,10 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_ST
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe tests/ -q     # 1938 passed
+.\.venv\Scripts\pytest.exe tests/ -q     # 2099 passed
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5
 ```
+
 

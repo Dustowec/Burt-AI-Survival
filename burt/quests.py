@@ -36,7 +36,7 @@ class Quest:
     giver_node: str
     title: str
     status: str  # active | completed | failed
-    type: str  # deliver | help | deceive | chain
+    type: str  # deliver | kill | visit | talk | help | deceive | chain
     progress: int = 0
     required: int = 0
     deliver_items: list[dict] | None = None
@@ -44,6 +44,7 @@ class Quest:
     deadline_day: int | None = None
     chain: str | None = None
     chain_step: int | None = None
+    target: str | None = None   # §36: enemy key / location / role
 
 
 # ---------------------------------------------------------------------
@@ -82,6 +83,7 @@ def _dict_to_quest(d: dict) -> Quest:
         deadline_day=d.get("deadline_day"),
         chain=d.get("chain"),
         chain_step=d.get("chain_step"),
+        target=d.get("target"),
     )
 
 
@@ -100,6 +102,7 @@ def _quest_to_dict(q: Quest) -> dict:
         "deadline_day": q.deadline_day,
         "chain": q.chain,
         "chain_step": q.chain_step,
+        "target": q.target,
     }
 
 
@@ -151,9 +154,227 @@ def _advance_chain(q: Quest, state: dict) -> None:
         deadline_day=None,
         chain=tpl.get("chain"),
         chain_step=tpl.get("step"),
+        target=tpl.get("target"),
     )
     hidden = state.setdefault("hidden", {})
     hidden.setdefault("quests_raw", []).append(_quest_to_dict(new_q))
+
+
+# ---------------------------------------------------------------------
+# Role quests (§36)
+# ---------------------------------------------------------------------
+
+QUEST_ROLES: tuple[str, ...] = (
+    "elder", "blacksmith", "merchant", "guard",
+    "fisherman", "veteran", "tavernkeeper",
+)
+
+# §16: reputation <= -5 -> this role gives no quests.
+REPUTATION_QUEST_MIN = -5
+
+
+def quest_roles() -> tuple[str, ...]:
+    """Roles that can hand out ordinary quests (§36)."""
+    return QUEST_ROLES
+
+
+def roll_deadline(rng) -> int:
+    """§36: 1d6 at issue time -> 3 / 5 / 7 days."""
+    roll = rng()
+    if not isinstance(roll, int) or isinstance(roll, bool) or not 1 <= roll <= 6:
+        raise ValueError(f"deadline roll must be int 1..6, got {roll!r}")
+    if roll <= 2:
+        return 3
+    if roll <= 4:
+        return 5
+    return 7
+
+
+def _templates_for_role(role: str) -> list[str]:
+    """Ids of role quest templates, in a stable order."""
+    templates = _load_templates()
+    return sorted(
+        qid for qid, tpl in templates.items() if tpl.get("role") == role
+    )
+
+
+def _has_active_quest_from_role(role: str, state: dict) -> bool:
+    hidden = state.get("hidden", {})
+    for d in hidden.get("quests_raw", []):
+        if d.get("giver_role") == role and d.get("status") == "active":
+            return True
+    return False
+
+
+def pick_quest_for_role(role: str, state: dict, rng=None) -> str | None:
+    """Choose a quest id for this role (§36).
+
+    Returns None when the role has no templates or already has an active
+    quest. Deterministic for a given rng.
+    """
+    if rng is None:
+        rng = dice.roll_d6
+    ids = _templates_for_role(role)
+    if not ids:
+        return None
+    if _has_active_quest_from_role(role, state):
+        return None
+    roll = rng()
+    if not isinstance(roll, int) or not 1 <= roll <= 6:
+        raise ValueError(f"pick roll must be int 1..6, got {roll!r}")
+    return ids[(roll - 1) % len(ids)]
+
+
+def quest_state_for_role(role: str, state: dict) -> str:
+    """Value of dialog_state["quest_state"] for this role (§32, §36).
+
+    "available"   - a quest can be given right now
+    "in_progress" - the role already has an active quest
+    "none"        - the role gives no quests (wrong role, rep too low,
+                    quest pool exhausted, or role blocked)
+    """
+    if role not in QUEST_ROLES:
+        return "none"
+
+    hidden = state.get("hidden", {})
+    if _has_active_quest_from_role(role, state):
+        return "in_progress"
+
+    reputation = hidden.get("reputation", {}).get(role, 0)
+    if reputation <= REPUTATION_QUEST_MIN:
+        return "none"
+
+    day = hidden.get("day", 1)
+    block = hidden.get("role_quest_block", {}).get(role)
+    if block is not None and block > day:
+        return "none"
+
+    if not _templates_for_role(role):
+        return "none"
+
+    if not quest_can_give(role, state):
+        return "none"
+
+    return "available"
+
+
+# ---------------------------------------------------------------------
+# Progress hooks (§18, §36)
+# ---------------------------------------------------------------------
+
+def _active_quests(state: dict) -> list[dict]:
+    hidden = state.get("hidden", {})
+    return [d for d in hidden.get("quests_raw", [])
+            if d.get("status") == "active"]
+
+
+def _bump(state: dict, entry: dict, amount: int = 1) -> bool:
+    """Raise progress of one quest dict. Returns True when it became ready."""
+    required = entry.get("required") or 0
+    if required <= 0:
+        return False
+    current = entry.get("progress", 0)
+    if current >= required:
+        return False
+    entry["progress"] = min(required, current + amount)
+    return entry["progress"] >= required
+
+
+def on_enemy_killed(enemy_key: str, state: dict) -> list[str]:
+    """§36: a kill counts for every active "kill" quest with this target."""
+    ready: list[str] = []
+    for entry in _active_quests(state):
+        if entry.get("type") != "kill":
+            continue
+        if entry.get("target") != enemy_key:
+            continue
+        if _bump(state, entry):
+            ready.append(entry["id"])
+    return ready
+
+
+def on_enter_location(location_type: str, state: dict) -> list[str]:
+    """§36: "visit" quests complete on entering the target location."""
+    ready: list[str] = []
+    for entry in _active_quests(state):
+        if entry.get("type") != "visit":
+            continue
+        if entry.get("target") != location_type:
+            continue
+        if _bump(state, entry):
+            ready.append(entry["id"])
+    return ready
+
+
+def on_talk(role_key: str, state: dict) -> list[str]:
+    """§36: "talk" quests complete after a dialog with the target role."""
+    ready: list[str] = []
+    for entry in _active_quests(state):
+        if entry.get("type") != "talk":
+            continue
+        if entry.get("target") != role_key:
+            continue
+        if _bump(state, entry):
+            ready.append(entry["id"])
+    return ready
+
+
+def on_quest_completed(role_key: str, state: dict) -> list[str]:
+    """§36: "help" quests count a completed quest of the target role."""
+    ready: list[str] = []
+    for entry in _active_quests(state):
+        if entry.get("type") != "help":
+            continue
+        if entry.get("target") != role_key:
+            continue
+        if _bump(state, entry):
+            ready.append(entry["id"])
+    return ready
+
+
+# ---------------------------------------------------------------------
+# Deliver progress (§18)
+# ---------------------------------------------------------------------
+
+def _intro_inventory(state: dict) -> dict[str, int]:
+    inventory = state.get("visible", {}).get("inventory", [])
+    return {i.get("name"): i.get("count", 0) for i in inventory}
+
+
+def deliver_progress(quest_id: str, state: dict) -> tuple[int, int]:
+    """(have, need) for the first deliver item of the quest (§18)."""
+    entry = None
+    for d in state.get("hidden", {}).get("quests_raw", []):
+        if d.get("id") == quest_id and d.get("status") == "active":
+            entry = d
+            break
+    if entry is None:
+        return (0, 0)
+    items = entry.get("deliver_items") or []
+    if not items:
+        return (0, 0)
+    need = items[0]["count"]
+    have = _intro_inventory(state).get(items[0]["name"], 0)
+    return (have, need)
+
+
+def deliver_ready(quest_id: str, state: dict) -> bool:
+    """§18: quest can be handed in (all required items are in hands)."""
+    entry = None
+    for d in state.get("hidden", {}).get("quests_raw", []):
+        if d.get("id") == quest_id and d.get("status") == "active":
+            entry = d
+            break
+    if entry is None:
+        return False
+    items = entry.get("deliver_items") or []
+    if not items:
+        return False
+    inventory = _intro_inventory(state)
+    for req in items:
+        if inventory.get(req["name"], 0) < req["count"]:
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------
@@ -216,6 +437,7 @@ def quest_give(quest_id: str, role: str, state: dict) -> tuple[bool, str]:
         deadline_day=deadline,
         chain=tpl.get("chain"),
         chain_step=tpl.get("step"),
+        target=tpl.get("target"),
     )
 
     hidden.setdefault("quests_issued_today", {})
