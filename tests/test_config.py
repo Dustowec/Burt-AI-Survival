@@ -200,3 +200,26 @@ class TestLlmBudgetContract:
         finally:
             monkeypatch.delenv("BURT_MAX_TOKENS", raising=False)
             importlib.reload(config)
+
+class TestLoggingPaths:
+    def test_game_session_path_is_filename(self):
+        # 39: gameplay log lives next to state.json, so no directory part.
+        assert config.GAME_SESSION_PATH == "game_session.jsonl"
+        assert "////" not in config.GAME_SESSION_PATH
+        assert chr(92) not in config.GAME_SESSION_PATH
+
+    def test_log_preview_chars(self):
+        # 38: preview is 80 characters when DEBUG=False.
+        assert config.LOG_PREVIEW_CHARS == 80
+
+    def test_log_queue_maxsize_is_positive(self):
+        assert isinstance(config.LOG_QUEUE_MAXSIZE, int)
+        assert config.LOG_QUEUE_MAXSIZE > 0
+
+    def test_log_fsync_is_bool(self):
+        assert isinstance(config.LOG_FSYNC, bool)
+
+    def test_log_rotate_hours_divides_day(self):
+        # 39: 12h buckets -> exactly two buckets per day (00 and 12).
+        assert 24 % config.LOG_ROTATE_HOURS == 0
+        assert 24 // config.LOG_ROTATE_HOURS == 2

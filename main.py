@@ -40,7 +40,11 @@ from burt import (
     search as search_mod,
 )
 from burt.npc import DialogueEngine, load_replicas
-from burt.game_logger import GameLogger
+from burt.trace import Trace
+from burt.plugin_log import (
+    PluginLogger, LEVEL_INFO, LEVEL_WARN, LEVEL_ERROR, preview_payload,
+)
+from burt.game_session import GameSessionLog
 
 
 logger = logging.getLogger("burt.main")
@@ -53,6 +57,7 @@ logger = logging.getLogger("burt.main")
 DEFAULT_STATE_PATH = Path("state.json")
 DEFAULT_MAX_STEPS = 10_000
 CONFIG_HASH = "v0.7.0"
+
 
 
 
@@ -328,6 +333,24 @@ def _log_inject(step: int, day: int, mode: str, menu: list[loop.Action], user_ms
 
 
 # ---------------------------------------------------------------------
+# Logging helpers (§38, §39)
+# ---------------------------------------------------------------------
+
+def plugin_preview_chars(plugin: PluginLogger | None) -> int:
+    """Preview length for react payloads when DEBUG=False (§38)."""
+    if plugin is None:
+        return config.LOG_PREVIEW_CHARS
+    return getattr(plugin, "_preview_chars", config.LOG_PREVIEW_CHARS)
+
+
+def plugin_level_for_parse(plugin: PluginLogger, choice_found: bool) -> int:
+    """INFO when CHOICE parsed, WARN otherwise (§39)."""
+    if choice_found:
+        return LEVEL_INFO
+    return LEVEL_WARN
+
+
+# ---------------------------------------------------------------------
 # Turn loop
 # ---------------------------------------------------------------------
 
@@ -336,15 +359,26 @@ async def run_turn(
     history: list[dict],
     rng,
     dry_run: bool,
-    game_logger: GameLogger | None = None,
+    game_session: GameSessionLog | None = None,
     epitaphs_dir: Path | None = None,
     dialogue_engine: DialogueEngine | None = None,
+    plugin: PluginLogger | None = None,
+    trace: Trace | None = None,
 ) -> TurnResult:
     visible = state["visible"]
     hidden = state["hidden"]
     day_before = hidden.get("day", 1)
     day = hidden.get("day", 1)
     step = hidden.get("step", 0)
+
+    # -- -1. Open a new floor (§38): one turn = one turn_uuid.
+    turn = None
+    if not dry_run and trace is not None:
+        turn = trace.new_turn()
+        if plugin is not None:
+            plugin.event(LEVEL_INFO, "turn_start", {
+                "day": day, "step": step, "mode": hidden.get("current_mode"),
+            })
 
     # -- 0. DoT tick at start of turn ----------------------------
     hp_lost = 0
@@ -359,12 +393,11 @@ async def run_turn(
                 visible.get("location", {}).get("name", "Unknown"),
             )
             await _write_epitaph(state, "diarrhea", epitaphs_dir)
-            if game_logger:
-                game_logger.log_special_event(
+            if game_session:
+                game_session.append_special(
                     day=day,
-                    event_type="death",
+                    event="death",
                     description="Burt died from diarrhea (DoT)",
-                    state=state,
                 )
             return TurnResult(game_over=True, history=history)
 
@@ -418,22 +451,56 @@ async def run_turn(
         return TurnResult(game_over=False, history=history,
                          start_state=state, sensory_report=report)
 
-    # -- 5. LLM call ----------------------------------------------
+    # -- 5. LLM call (layer: react, §38) ---------------------------
     menu_text = "\n".join(f"{i}. {a.label}" for i, a in enumerate(menu))
     llm_prompt = f"{report}\n\nMENU:\n{menu_text}\n\nCHOICE:"
-    
+
     _log_inject(step, hidden.get("day", 1), hidden.get("current_mode", "exploring"), menu, llm_prompt)
-    
-    answer, history = await llm_client.call_llm(
-        _build_system_prompt(state), llm_prompt, history,
-    )
-    
+
+    call_uuid = trace.new_call() if (trace is not None and not dry_run) else None
+    if plugin is not None:
+        plugin.state_change("running", "waiting_llm")
+        plugin.react_exchange("llm_request", prompt=llm_prompt, call_uuid=call_uuid)
+
+    try:
+        answer, history = await llm_client.call_llm(
+            _build_system_prompt(state), llm_prompt, history,
+        )
+    except Exception as exc:
+        if plugin is not None:
+            plugin.die("LLM call failed", exc, event="llm_error",
+                       layer="react", call_uuid=call_uuid)
+        raise
+
+    if plugin is not None:
+        plugin.state_change("waiting_llm", "running")
+        plugin.react_exchange("llm_response", response=answer, call_uuid=call_uuid)
+
     # P.5: No truncation
     logger.info("LLM: %s", answer)
 
-    # -- 6. Parse and execute -------------------------------------
+    # -- 6. Parse and execute (layers: interaction, tool) ----------
     action = loop.parse_choice(answer, menu)
     logger.info("Action: %s (%s)", action.key, action.label)
+
+    if plugin is not None:
+        has_choice = any(
+            line.strip().upper().startswith("CHOICE:")
+            for line in answer.splitlines()
+        )
+        plugin.interaction(
+            "parse_ok" if has_choice else "parse_warn",
+            {
+                "choice_found": has_choice,
+                "fallback_used": not has_choice,
+                "action": action.key,
+                "menu_size": len(menu),
+            },
+            level=plugin_level_for_parse(plugin, has_choice),
+            call_uuid=call_uuid,
+        )
+        if plugin.debug:
+            plugin.state_change("running", "writing_state")
 
     hidden.setdefault("day_log", []).append({
         "step": hidden.get("step", 0),
@@ -445,8 +512,27 @@ async def run_turn(
     if action.key == "write_diary_and_go_sleep":
         await _write_diary(state, hidden["day_log"])
 
+    tool_call_uuid = trace.new_call() if (trace is not None and not dry_run) else None
+    if plugin is not None:
+        plugin.tool("tool_call", {"action": action.key, "label": action.label},
+                    call_uuid=tool_call_uuid)
+
     result = loop.execute_action(action, state, rng=rng,
                                  dialogue_engine=dialogue_engine)
+
+    if plugin is not None:
+        plugin.tool(
+            "tool_result",
+            {
+                "action": action.key,
+                "events": len(result.events),
+                "game_over": result.game_over,
+                "hp": visible.get("hp", 0),
+            },
+            call_uuid=tool_call_uuid,
+        )
+        if plugin.debug:
+            plugin.state_change("writing_state", "running")
 
     _log_result_events(result)
 
@@ -460,20 +546,26 @@ async def run_turn(
         await _write_epitaph(
             state, _determine_death_cause(state, action), epitaphs_dir,
         )
-        if game_logger:
-            game_logger.log_turn(
+        if game_session:
+            game_session.append_turn(
                 day=day,
-                start_state=state,
-                sensory_report=report,
-                llm_prompt=llm_prompt,
-                llm_response=answer,
+                step=hidden.get("step", 0),
+                mode=hidden.get("current_mode", "exploring"),
+                location=visible.get("location", {}).get("name", "?"),
+                prompt=llm_prompt,
+                response=answer,
                 action_key=action.key,
                 action_label=action.label,
-                result_events=result.events,
-                result_game_over=True,
-                result_new_hp=visible.get("hp"),
-                end_state=state,
+                events=result.events,
+                hp=visible.get("hp", 0),
+                hp_max=visible.get("hp_max", 0),
+                game_over=True,
             )
+        if plugin is not None:
+            plugin.event(LEVEL_INFO, "death", {"cause": _determine_death_cause(state, action)})
+            plugin.event(LEVEL_INFO, "turn_complete", {
+                "game_over": True, "hp": visible.get("hp", 0),
+            })
         return TurnResult(game_over=True, history=history,
                          start_state=state, sensory_report=report,
                          llm_prompt=llm_prompt, llm_response=answer,
@@ -492,13 +584,14 @@ async def run_turn(
             visible.get("location", {}).get("name", "Unknown")
         )
         await _write_epitaph(state, "hunger", epitaphs_dir)
-        if game_logger:
-            game_logger.log_special_event(
+        if game_session:
+            game_session.append_special(
                 day=day,
-                event_type="death",
+                event="death",
                 description="Burt died from hunger",
-                state=state,
             )
+        if plugin is not None:
+            plugin.event(LEVEL_INFO, "death", {"cause": "hunger"})
         return TurnResult(game_over=True, history=history,
                          start_state=state, sensory_report=report,
                          llm_prompt=llm_prompt, llm_response=answer,
@@ -528,23 +621,29 @@ async def run_turn(
     # -- 13. Sync meta and save -----------------------------------
     _sync_meta_from_hidden(state)
 
-    # -- Log the turn ---------------------------------------------
-    if game_logger:
-        game_logger.log_turn(
+    # -- Log the turn (§2: gameplay log, §38: floor closed) --------
+    if game_session:
+        game_session.append_turn(
             day=day,
-            start_state=state,
-            sensory_report=report,
-            llm_prompt=llm_prompt,
-            llm_response=answer,
+            step=hidden.get("step", 0),
+            mode=hidden.get("current_mode", "exploring"),
+            location=visible.get("location", {}).get("name", "?"),
+            prompt=llm_prompt,
+            response=answer,
             action_key=action.key,
             action_label=action.label,
-            result_events=result.events,
-            result_game_over=False,
-            result_new_hp=visible.get("hp"),
-            result_search_result=getattr(result, "search_result", None),
-            result_direction_moved=getattr(result, "direction_moved", None),
-            end_state=state,
+            events=result.events,
+            hp=visible.get("hp", 0),
+            hp_max=visible.get("hp_max", 0),
+            game_over=False,
         )
+    if plugin is not None:
+        plugin.event(LEVEL_INFO, "turn_complete", {
+            "day": day,
+            "step": hidden.get("step", 0),
+            "action": action.key,
+            "hp": visible.get("hp", 0),
+        })
 
     return TurnResult(game_over=False, history=history,
                      start_state=state, sensory_report=report,
@@ -614,19 +713,25 @@ async def game_loop(
     max_steps: int,
     dry_run: bool,
     state_path: Path,
-    game_logger: GameLogger | None = None,
+    game_session: GameSessionLog | None = None,
     epitaphs_dir: Path | None = None,
     dialogue_engine: DialogueEngine | None = None,
+    plugin: PluginLogger | None = None,
+    trace: Trace | None = None,
 ) -> None:
     rng = dice.roll_d6
     step_count = 0
     epitaphs_dir = epitaphs_dir or state_path.parent
 
+    if plugin is not None:
+        plugin.event(LEVEL_INFO, "loop_start", {"max_steps": max_steps})
+        plugin.state_change("init", "running")
+
     while step_count < max_steps:
         try:
             turn_result = await run_turn(
-                state, history, rng, dry_run, game_logger,
-                epitaphs_dir, dialogue_engine,
+                state, history, rng, dry_run, game_session,
+                epitaphs_dir, dialogue_engine, plugin, trace,
             )
             game_over = turn_result.game_over
             history = turn_result.history
@@ -666,13 +771,16 @@ async def game_loop(
                     "Resurrected by divine mercy (roll=6, %d HP)",
                     resurrection.RESURRECTION_HP,
                 )
-                if game_logger:
-                    game_logger.log_special_event(
+                if game_session:
+                    game_session.append_special(
                         day=hidden.get("day", 1),
-                        event_type="resurrection",
+                        event="resurrection",
                         description="Burt resurrected by dice roll",
-                        state=state,
                     )
+                if plugin is not None:
+                    plugin.event(LEVEL_INFO, "resurrection", {
+                        "hp": resurrection.RESURRECTION_HP,
+                    })
                 # game_over=False → продолжаем цикл
                 continue
 
@@ -762,30 +870,64 @@ async def main() -> int:
             return 1
 
     history: list[dict] = []
-    game_logger = GameLogger(Path("LOGS"))
-    logger.info("GameLogger initialized at LOGS/")
+    trace = Trace()
+    plugin = PluginLogger(
+        log_dir=config.LOG_DIR,
+        crash_dir=config.CRASH_DIR,
+        trace=trace,
+        level=config.LOG_LEVEL,
+        debug=config.DEBUG,
+        rotate_hours=config.LOG_ROTATE_HOURS,
+        ring_size=config.RING_BUFFER_SIZE,
+        preview_chars=config.LOG_PREVIEW_CHARS,
+        queue_maxsize=config.LOG_QUEUE_MAXSIZE,
+        version=CONFIG_HASH,
+    )
+    plugin.register_atexit()
+    plugin.install_signal_handlers()
+    game_session = GameSessionLog(
+        state_path.parent / config.GAME_SESSION_PATH,
+        trace=trace,
+        fsync=config.LOG_FSYNC,
+    )
+    logger.info("Plugin fields: logs=%s crashes=%s gameplay=%s",
+                config.LOG_DIR, config.CRASH_DIR, game_session.path)
     engine = load_dialogue_engine()
     try:
         await game_loop(
             state, history, args.max_steps, args.dry_run, state_path,
-            game_logger,
+            game_session,
             epitaphs_dir=state_path.parent,
             dialogue_engine=engine,
+            plugin=plugin,
+            trace=trace,
         )
     except KeyboardInterrupt:
         logger.info("Ctrl+C received; saving state")
-    except Exception:
+        if plugin is not None:
+            plugin.event(LEVEL_INFO, "interrupted")
+    except Exception as exc:
         logger.exception("Fatal error in game loop")
+        if plugin is not None:
+            plugin.state_change("running", "crashed")
+            plugin.die("Fatal error in game loop", exc)
+        await plugin.stop()
         return 1
 
     try:
         _sync_meta_from_hidden(state)
         state_io.save_state(state_path, state)
         logger.info("State saved to %s", state_path)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed final save")
+        if plugin is not None:
+            plugin.event(LEVEL_ERROR, "state_invalid", {"message": str(exc)})
+        await plugin.stop()
         return 1
 
+    plugin.event(LEVEL_INFO, "state_saved", {"path": str(state_path)})
+    plugin.state_change("running", "stopped")
+    await plugin.stop()
     return 0
 
 

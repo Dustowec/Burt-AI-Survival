@@ -102,6 +102,21 @@ CRASH_DIR = "crashes/"
 LOG_ROTATE_HOURS = 12
 RING_BUFFER_SIZE = 20
 
+# Gameplay log (spec 2, 39): append-only, synchronous, one line per turn.
+# Lives next to state.json.
+GAME_SESSION_PATH = "game_session.jsonl"
+
+# DEBUG=False: prompt/response are stored as chars + sha256 + preview.
+LOG_PREVIEW_CHARS = 80
+
+# Async writer queue. On overflow the line is written synchronously
+# and a log_queue_full (level 2) event is emitted.
+LOG_QUEUE_MAXSIZE = 1000
+
+# fsync each gameplay line. False by default: flush() survives a normal
+# interpreter exit, and fsync per turn is slow on Windows.
+LOG_FSYNC = False
+
 
 # ---------------------------------------------------------------------
 # ЛОКАЦИИ (§17) — вынесено из world.py, долг В7
