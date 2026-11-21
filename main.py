@@ -50,6 +50,7 @@ from burt.plugin_log import (
     PluginLogger, LEVEL_INFO, LEVEL_WARN, LEVEL_ERROR, preview_payload,
 )
 from burt.game_session import GameSessionLog
+from burt.blog_log import BlogLog, FOLDED_TOOLS
 
 
 logger = logging.getLogger("burt.main")
@@ -274,7 +275,8 @@ def _store_epitaph(state: dict, cause: str, text: str) -> None:
     logger.info("epitaph cause=%s: %s", cause, text)
 
 
-async def _write_diary(state: dict, day_log: list[dict]) -> None:
+async def _write_diary(state: dict, day_log: list[dict],
+                       blog: BlogLog | None = None) -> None:
     """Call LLM with DIARY_PROMPT, store result in hidden['diary']."""
     hidden = state["hidden"]
     day = hidden.get("day", 1)
@@ -293,10 +295,13 @@ async def _write_diary(state: dict, day_log: list[dict]) -> None:
     hidden["diary"] = answer
     hidden["diary_written_today"] = True
     logger.info("diary day=%d: %s", day, answer)
+    if blog is not None:
+        blog.diary(day=day, text=answer)
 
 
 async def _write_epitaph(
     state: dict, cause: str, epitaphs_dir: Path | None = None,
+    blog: BlogLog | None = None,
 ) -> None:
     """Call LLM with SPIRIT_PROMPT, store epitaph in meta['memory'] and epitaphs.json."""
     hidden = state["hidden"]
@@ -315,6 +320,11 @@ async def _write_epitaph(
         life = state["meta"]["life"]
         epitaphs_mod.add_epitaph(epitaphs_dir, life, answer, cause, days)
         logger.info("epitaph saved to epitaphs.json life=%d", life)
+
+    if blog is not None:
+        blog.epitaph(
+            life=state["meta"]["life"], days=days, cause=cause, text=answer,
+        )
 
 
 async def _write_memory_summary(
@@ -365,6 +375,62 @@ def _log_result_events(result: loop.ActionResult) -> None:
         logger.info("event: %s", ev)
 
 
+def _combat_enemies_line(events: list[str]) -> str:
+    """'young goblin' from the [COMBAT] block of the turn, if any."""
+    for ev in events:
+        if not ev.startswith(loop._COMBAT_HEADER):
+            continue
+        for line in ev.splitlines():
+            if line.startswith("Enemy:"):
+                return line[len("Enemy:"):].strip()
+    return ""
+
+
+def _blog_turn(
+    blog: BlogLog,
+    *,
+    state: dict,
+    day: int,
+    step: int,
+    mode: str,
+    location: str,
+    status_before: str,
+    answer: str,
+    action: loop.Action,
+    result: loop.ActionResult,
+    combat_started: bool,
+) -> None:
+    """Write one turn of the chronicle: status, event, words, choice."""
+    hidden = state["hidden"]
+    visible = state["visible"]
+    status_after = sensory.format_sensory_report(visible)
+
+    blog.turn(
+        day=day,
+        step=step,
+        mode=mode,
+        location=location,
+        status_before=status_before,
+        status_after=status_after,
+        response=answer,
+        action_key=action.key,
+        action_label=action.label,
+        event=result.inject,
+        folded=action.key in FOLDED_TOOLS,
+    )
+
+    # The fight opens on this turn, so its block goes right after it.
+    if combat_started:
+        combat = hidden.get("combat") or {}
+        enemies = _combat_enemies_line(result.events) or "unknown"
+        blog.combat_start(
+            ambush=result.inject == loop._AMBUSH_TEXT,
+            enemies=enemies,
+            initiative=combat.get("initiative", "?"),
+            status=status_after,
+        )
+
+
 def _log_inject(step: int, day: int, mode: str, menu: list[loop.Action], user_msg: str) -> None:
     """П.4: log LLM inject (header+menu INFO, full DEBUG)."""
     actions_str = ", ".join(f"{i}={a.key}" for i, a in enumerate(menu))
@@ -408,12 +474,15 @@ async def run_turn(
     dialogue_engine: DialogueEngine | None = None,
     plugin: PluginLogger | None = None,
     trace: Trace | None = None,
+    blog: BlogLog | None = None,
 ) -> TurnResult:
     visible = state["visible"]
     hidden = state["hidden"]
     day_before = hidden.get("day", 1)
     day = hidden.get("day", 1)
     step = hidden.get("step", 0)
+    mode_before = hidden.get("current_mode", "exploring")
+    had_combat = hidden.get("combat") is not None
 
     # -- -1. Open a new floor (§38): one turn = one turn_uuid.
     turn = None
@@ -452,6 +521,7 @@ async def run_turn(
     # §11: the reason comes first, the report after it. It is a fact
     # produced by the previous turn, so it is read straight from state.
     report = sensory.format_sensory_report(visible)
+    status_before = report
     inject_text = hidden.pop("pending_event_inject", None)
     if inject_text:
         report = f"{inject_text}\n\n{report}"
@@ -613,7 +683,7 @@ async def run_turn(
     })
 
     if action.key == "write_diary_and_go_sleep":
-        await _write_diary(state, hidden["day_log"])
+        await _write_diary(state, hidden["day_log"], blog)
 
     tool_call_uuid = trace.new_call() if (trace is not None and not dry_run) else None
     if plugin is not None:
@@ -649,6 +719,22 @@ async def run_turn(
             plugin.state_change("writing_state", "running")
 
     _log_result_events(result)
+
+    # -- 6a. Blog chronicle: one block per turn (§ blog_log) ------
+    if blog is not None:
+        _blog_turn(
+            blog,
+            state=state,
+            day=day,
+            step=step,
+            mode=mode_before,
+            location=visible.get("location", {}).get("name", "?"),
+            status_before=status_before,
+            answer=answer,
+            action=action,
+            result=result,
+            combat_started=(not had_combat and hidden.get("combat") is not None),
+        )
 
     # -- 7. Save history (trim if too long) -----------------------
     if len(history) > 40:
@@ -826,6 +912,7 @@ async def game_loop(
     dialogue_engine: DialogueEngine | None = None,
     plugin: PluginLogger | None = None,
     trace: Trace | None = None,
+    blog: BlogLog | None = None,
 ) -> dict:
     """Run turns until max_steps / Ctrl+C. Returns the CURRENT state.
 
@@ -844,7 +931,7 @@ async def game_loop(
         try:
             turn_result = await run_turn(
                 state, history, rng, dry_run, game_session,
-                epitaphs_dir, dialogue_engine, plugin, trace,
+                epitaphs_dir, dialogue_engine, plugin, trace, blog,
             )
             game_over = turn_result.game_over
             history = turn_result.history
@@ -862,6 +949,16 @@ async def game_loop(
 
         if game_over:
             hidden = state.setdefault("hidden", {})
+            if blog is not None:
+                blog.death(
+                    life=state["meta"].get("life", 1),
+                    day=hidden.get("day", 1),
+                    step=hidden.get("step", 0),
+                    cause=turn_result.death_cause or "unknown",
+                    location=(state.get("visible", {})
+                                   .get("location", {})
+                                   .get("name", "?")),
+                )
             # Resurrection mercy is one per day (§4, hunger.py).
             if hidden.get("resurrection_used_today", False):
                 logger.info(
@@ -896,6 +993,8 @@ async def game_loop(
                     plugin.event(LEVEL_INFO, "resurrection", {
                         "hp": resurrection.RESURRECTION_HP,
                     })
+                if blog is not None:
+                    blog.resurrection(hp=resurrection.RESURRECTION_HP)
             else:
                 # Если FAILED — пишем эпитафию и создаём новую жизнь.
                 # new_bug §6: только окончательная смерть (roll != 6).
@@ -905,6 +1004,7 @@ async def game_loop(
                         state,
                         turn_result.death_cause or "unknown",
                         epitaphs_dir,
+                        blog,
                     )
                 except Exception:
                     logger.exception(
@@ -932,6 +1032,10 @@ async def game_loop(
                 # The new life inherits the epitaph of the dead one, so
                 # the flag describes the NEW state, not the dying life.
                 inherited = bool(state["meta"].get("memory"))
+                if blog is not None:
+                    blog.new_life(
+                        life=new_life, memory=state["meta"].get("memory"),
+                    )
                 logger.info(
                     "Game over (life %d) → new life %d started (memory=%s)",
                     old_life, new_life, "yes" if inherited else "no",
@@ -968,6 +1072,10 @@ async def main() -> int:
                         help=f"Stop after N turns (default: {DEFAULT_MAX_STEPS})")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print report+menu, no LLM call")
+    parser.add_argument("--blog", type=Path, nargs="?", const=Path(""),
+                        default=None,
+                        help="Write a markdown chronicle of the run "
+                             "(default path: logs/blog_<timestamp>.md)")
     parser.add_argument("--log-level", default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     args = parser.parse_args()
@@ -1030,6 +1138,21 @@ async def main() -> int:
     )
     logger.info("Plugin fields: logs=%s crashes=%s gameplay=%s",
                 config.LOG_DIR, config.CRASH_DIR, game_session.path)
+
+    blog = None
+    if args.blog is not None:
+        blog_path = args.blog
+        if str(blog_path) == "":
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            blog_path = Path(config.LOG_DIR) / f"blog_{stamp}.md"
+        blog = BlogLog(blog_path, trace=trace, fsync=config.LOG_FSYNC)
+        blog.start(
+            life=state["meta"].get("life", 1),
+            max_steps=args.max_steps,
+            model=config.MODEL,
+        )
+        logger.info("Blog chronicle: %s", blog.path)
+
     engine = load_dialogue_engine()
     try:
         state = await game_loop(
@@ -1039,6 +1162,7 @@ async def main() -> int:
             dialogue_engine=engine,
             plugin=plugin,
             trace=trace,
+            blog=blog,
         )
     except KeyboardInterrupt:
         logger.info("Ctrl+C received; saving state")
