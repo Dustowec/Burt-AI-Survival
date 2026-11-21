@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from burt import dice
+from burt import faith
 
 
 # ---------------------------------------------------------------------
@@ -135,7 +136,8 @@ def _advance_chain(q: Quest, state: dict) -> None:
     templates = _load_templates()
     next_id = templates.get(q.id, {}).get("next_chain_step")
     if next_id is None:
-        # Stub: chain finished
+        # §33: the finale awards the status (paladin / heretic).
+        faith.on_chain_complete(q.chain, state)
         return
     if next_id not in templates:
         return
@@ -234,6 +236,12 @@ def quest_state_for_role(role: str, state: dict) -> str:
                     quest pool exhausted, or role blocked)
     """
     if role not in QUEST_ROLES:
+        # §33: chain givers (cleric / necromancer) live outside QUEST_ROLES.
+        if role in faith.FAITH_ROLES:
+            if faith.active_chain_for_role(role, state):
+                return "in_progress"
+            if faith.next_chain_step(role, state) is not None:
+                return "available"
         return "none"
 
     hidden = state.get("hidden", {})
@@ -246,7 +254,7 @@ def quest_state_for_role(role: str, state: dict) -> str:
 
     day = hidden.get("day", 1)
     block = hidden.get("role_quest_block", {}).get(role)
-    if block is not None and block > day:
+    if block is not None and (block < 0 or block > day):
         return "none"
 
     if not _templates_for_role(role):
@@ -394,8 +402,12 @@ def quest_can_give(role: str, state: dict) -> bool:
 
     # Check role not blocked
     block = hidden.get("role_quest_block", {}).get(role)
-    if block is not None and block > current_day:
-        return False
+    if block is not None:
+        # §34: a killed quest giver blocks the role for the whole life (-1).
+        if block < 0:
+            return False
+        if block > current_day:
+            return False
 
     # Check limit 3 per day per node
     issued = hidden.get("quests_issued_today", {}).get(current_node, 0)
@@ -405,8 +417,9 @@ def quest_can_give(role: str, state: dict) -> bool:
     return True
 
 
-def quest_give(quest_id: str, role: str, state: dict) -> tuple[bool, str]:
-    if not quest_can_give(role, state):
+def quest_give(quest_id: str, role: str, state: dict,
+               force: bool = False) -> tuple[bool, str]:
+    if not force and not quest_can_give(role, state):
         return (False, "cannot give quest")
 
     templates = _load_templates()
@@ -440,8 +453,9 @@ def quest_give(quest_id: str, role: str, state: dict) -> tuple[bool, str]:
         target=tpl.get("target"),
     )
 
-    hidden.setdefault("quests_issued_today", {})
-    hidden["quests_issued_today"][current_node] = hidden["quests_issued_today"].get(current_node, 0) + 1
+    if not force:
+        hidden.setdefault("quests_issued_today", {})
+        hidden["quests_issued_today"][current_node] = hidden["quests_issued_today"].get(current_node, 0) + 1
     hidden.setdefault("quests_raw", []).append(_quest_to_dict(q))
     return (True, f"Quest given: {q.title}")
 
@@ -540,6 +554,9 @@ def quest_complete(quest_id: str, state: dict) -> tuple[bool, str]:
             _advance_chain(q, state)
             return (True, "quest completed")
         else:
+            # §33: chain steps are strict (no partial acceptance).
+            if q.chain is not None:
+                return (False, "need to finish")
             # Partial: roll d6
             roll = dice.roll_d6()
             if roll <= 2:
@@ -569,6 +586,9 @@ def quest_complete(quest_id: str, state: dict) -> tuple[bool, str]:
             _advance_chain(q, state)
             return (True, "quest completed")
         else:
+            # §33: chain steps are strict (no partial acceptance).
+            if q.chain is not None:
+                return (False, "need to finish")
             roll = dice.roll_d6()
             if roll <= 2:
                 quest_fail(quest_id, state)
@@ -607,6 +627,8 @@ def quest_fail(quest_id: str, state: dict) -> tuple[bool, str]:
         blocks[giver] = hidden.get("day", 1) + 10
     hidden["role_quest_block"] = blocks
 
+    # §33: a failed role quest resets the paladin K2 counter.
+    faith.on_quest_failed(state)
     return (True, "quest failed")
 
 

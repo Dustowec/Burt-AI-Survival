@@ -28,6 +28,7 @@ from burt import spawn
 from burt import combat
 from burt import npc_spawn
 from burt import quests
+from burt import faith
 from burt import reputation
 from burt import loot
 from burt import search as search_mod
@@ -155,7 +156,11 @@ def build_menu(visible: dict, state: dict, *,
     # ── Talk actions (§32): NPCs of this node, next to exits and search.
     talk_actions: list[Action] = []
     if dialogue_engine is not None:
+        killer = faith.is_killer(state)
         for role_key in hidden.get("npcs_here", []):
+            # §34: residents stop talking after the crime.
+            if killer and faith.cannot_talk_after_crime(role_key):
+                continue
             talk_actions.append(
                 Action(key=f"talk_to_{role_key}",
                        label=f"Talk to {role_key}")
@@ -244,6 +249,12 @@ def _build_dialog_menu(visible: dict, state: dict,
             actions.append(Action(key="dialog_exit", label="Leave conversation"))
         else:
             actions.append(Action(key=f"dialog_{cat}", label=cat.capitalize()))
+
+    # §33/§34: the K3 donation and the hostile act.
+    if faith.donate_available(state, role_key):
+        actions.append(Action(key="dialog_donate", label="Donate all coin"))
+    if role_key in faith.RESIDENT_ROLES:
+        actions.append(Action(key="dialog_attack", label="Attack (kill)"))
     return actions
 
 
@@ -1246,6 +1257,27 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
     rep_role = _rep_role(role_key)
+
+    # §34: god's wrath is served at the first meeting with the cleric.
+    punishment_event = None
+    if role_key == "cleric":
+        damage = faith.take_punishment(state)
+        if damage > 0:
+            visible["hp"] = max(0, visible.get("hp", 0) - damage)
+            hidden["hp_raw"] = visible["hp"]
+            punishment_event = (
+                f"The gods demand a price. You take {damage} damage."
+            )
+            if visible["hp"] <= 0:
+                hidden["death_cause_override"] = "god_wrath"
+                return ActionResult(
+                    events=[
+                        punishment_event,
+                        sensory.format_sensory_report(visible),
+                    ],
+                    game_over=True,
+                )
+
     hidden["current_mode"] = "dialog"
     hidden["dialog_state"] = {
         "role_key": role_key,
@@ -1271,12 +1303,14 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
     # one action and only dialog_exit advances the step.
     hidden["last_action"] = action.key
     hidden["same_action_count"] = 1
-    return ActionResult(
-        events=[
-            f"You approach the {role_key}.",
-            sensory.format_sensory_report(visible),
-        ]
-    )
+    events = []
+    if punishment_event is not None:
+        events.append(punishment_event)
+    events.extend([
+        f"You approach the {role_key}.",
+        sensory.format_sensory_report(visible),
+    ])
+    return ActionResult(events=events)
 
 
 def _finish_dialog(state: dict) -> ActionResult:
@@ -1316,6 +1350,12 @@ def _execute_dialog_action(action: Action, state: dict, rng,
             return error_result("cannot leave while angry")
         return _finish_dialog(state)
 
+    # §33/§34: faith actions are handled before the generic topics.
+    if action.key == "dialog_attack":
+        return _execute_kill_resident(state)
+    if action.key == "dialog_donate":
+        return _execute_donate(state)
+
     # §35: an open shop is driven by buy_/sell_/close, not by topics.
     if action.key == "dialog_trade_close":
         return _close_shop(state)
@@ -1350,7 +1390,85 @@ def _execute_dialog_action(action: Action, state: dict, rng,
     if category == "train":
         return _execute_train(state, engine, rng)
 
-    return execute_dialog(action, state, engine, rng, category=category)
+    # §33 K2 heretic: the first roll decides (>= 3), one try per NPC.
+    if category == "lie" and faith.heretic_k2_active(state):
+        roll = rng()
+        second_roll = rng()
+        faith.on_deceive(
+            ds.get("rep_role", ""),
+            hidden.get("current_node_id", ""),
+            roll,
+            state,
+        )
+        return execute_dialog(
+            action, state, engine, rng, category=category,
+            roll=roll, second_roll=second_roll,
+        )
+
+    result = execute_dialog(action, state, engine, rng, category=category)
+    # §33 K3 heretic: a successful threat against the cleric counts.
+    if (category == "threat" and ds.get("role_key") == "cleric"
+            and ds.get("last_outcome") == "SUCCESS"
+            and faith.on_insult_to_cleric(state)):
+        result.events.insert(0, "The insult lands.")
+    return result
+
+
+def _execute_kill_resident(state: dict) -> ActionResult:
+    """§34: a single hostile act kills a resident (no combat rounds)."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state") or {}
+    role_key = ds.get("role_key", "")
+    rep_role = ds.get("rep_role") or role_key
+    node_id = hidden.get("current_node_id", "start")
+    if role_key not in faith.RESIDENT_ROLES:
+        return error_result("not a resident")
+
+    summary = faith.on_resident_killed(role_key, rep_role, state)
+    npc_spawn.remove_npc(hidden, node_id, role_key)
+
+    # The murder closes the dialogue and is one action (§3).
+    hidden["current_mode"] = "exploring"
+    hidden["dialog_state"] = None
+    hidden["step"] = hidden.get("step", 0) + 1
+    hidden["last_action"] = "dialog_attack"
+    hidden["same_action_count"] = 1
+    reputation.reset_dialog_rep(state)
+
+    events = [f"You strike the {role_key} down. The body falls still."]
+    if summary["failed_quests"]:
+        events.append("Your open work is lost.")
+    events.append(sensory.format_sensory_report(visible))
+    return ActionResult(events=events)
+
+
+def _execute_donate(state: dict) -> ActionResult:
+    """§33 K3: give every coin to the temple (paladin / heretic chain)."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state") or {}
+    role_key = ds.get("role_key", "")
+
+    info = faith.donate(state, role_key)
+    if info is None:
+        return error_result("nothing to donate")
+
+    events = ["You give every coin to the temple."]
+    if info["coins"] > 0:
+        events.append(f"Donated: {info['coins']} coin.")
+
+    if info["complete_now"]:
+        ok, _message = quests.quest_complete(info["quest_id"], state)
+        if ok:
+            events.append("The temple accepts your offering.")
+    else:
+        events.append(
+            "The temple accepts your offering. "
+            "Report back to the one who sent you."
+        )
+    events.append(sensory.format_sensory_report(visible))
+    return ActionResult(events=events)
 
 
 def _close_shop(state: dict) -> ActionResult:
@@ -1534,7 +1652,7 @@ def _try_hand_in_quest(state: dict, role_key: str) -> ActionResult | None:
         if q.type == "deliver":
             if not quests_mod.deliver_ready(quest_id, state):
                 continue
-        elif q.type in ("kill", "visit", "talk", "help"):
+        elif q.type in ("kill", "visit", "talk", "help", "deceive", "chain"):
             if (q.progress or 0) < (q.required or 0):
                 continue
         else:
@@ -1548,6 +1666,8 @@ def _try_hand_in_quest(state: dict, role_key: str) -> ActionResult | None:
         reputation.change(state, role_key, reputation.QUEST_DELTA_OK)
         # §36: completed quests count for "help" quests of the same role.
         supporting = quests_mod.on_quest_completed(role_key, state)
+        # §33: K2 paladin counts closed role quests only (not chains).
+        faith.on_help_completed(state, is_chain=bool(q.chain))
 
         events = [f"Quest complete: {q.title}.", message]
         for other in supporting:
@@ -1570,6 +1690,33 @@ def _issue_role_quest(state: dict, rng,
     visible = state.setdefault("visible", {})
     ds = hidden.get("dialog_state")
     role_key = (ds or {}).get("role_key", "")
+
+    # §33: cleric / necromancer hand out faith chains, not role quests.
+    if role_key in faith.FAITH_ROLES:
+        chain_id = faith.next_chain_step(role_key, state)
+        if chain_id is None:
+            ds = hidden.setdefault("dialog_state", {})
+            ds["quest_state"] = "none"
+            return execute_dialog(
+                Action(key="dialog_quest", label="Quest"), state, engine, rng,
+                category="quest",
+            )
+        ok, _message = quests.quest_give(
+            chain_id, role_key, state, force=True,
+        )
+        if ok:
+            faith.on_chain_issued(chain_id, state)
+            ds["quest_state"] = "in_progress"
+        result = execute_dialog(
+            Action(key="dialog_quest", label="Quest"), state, engine, rng,
+            category="quest",
+        )
+        if ok:
+            title = _quest_title(chain_id)
+            result.events.insert(
+                0, f"The {role_key} gives you work: {title}.",
+            )
+        return result
 
     quest_id = quests.pick_quest_for_role(role_key, state, rng)
     if quest_id is None:
@@ -1656,11 +1803,16 @@ def _quest_title(quest_id: str) -> str:
 
 
 def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
-                   *, category: str | None = None) -> ActionResult:
+                   *, category: str | None = None,
+                   roll: int | None = None,
+                   second_roll: int | None = None) -> ActionResult:
     """Execute one dialogue turn.
 
     Rebuilds Session from dialog_state + visible, calls Session.say(),
     applies Result back to state.
+
+    roll / second_roll may be supplied by the caller (faith K2 needs the
+    same first roll for the reply and for the quest count).
     """
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
@@ -1669,9 +1821,11 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
         return error_result("no active dialog")
 
     cat = category or action.key[len("dialog_"):]
-    roll = rng()
+    if roll is None:
+        roll = rng()
     # second_roll: deterministic default for tests (4 = no bonus)
-    second_roll = rng()
+    if second_roll is None:
+        second_roll = rng()
 
     # Rebuild session from persisted state
     role_key = ds.get("role_key", "")
@@ -1710,6 +1864,8 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
     ds["quest_state"] = session.quest_state
     # §35: the trade bonus of this reply must survive into the shop mode.
     ds["last_bonus"] = result.bonus
+    # §33: the insult check needs the reply outcome.
+    ds["last_outcome"] = result.outcome.name
 
     # new_bug §1: a dialogue reply is part of the single dialogue action;
     # the step is advanced only by _finish_dialog (dialog_exit).
@@ -2081,6 +2237,12 @@ def _arrive_at_node(
     # §9: the wandering mage may join the fixed role in temple / dungeon.
     # Runs last: its dice never shift the movement or NPC spawn order.
     npc_spawn.maybe_add_mage(hidden, loc_type, node_id, rng)
+
+    # §34: children and peasants run away from a killer.
+    if faith.is_killer({"hidden": hidden, "visible": visible}):
+        for role in list(hidden.get("npcs_here") or []):
+            if role in faith.FLEE_ROLES:
+                npc_spawn.remove_npc(hidden, node_id, role)
 
     return loc_type, started
 

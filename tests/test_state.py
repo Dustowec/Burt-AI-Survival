@@ -38,13 +38,13 @@ from burt.state import (
 # Константы
 # ---------------------------------------------------------------------
 
-def test_roles_are_twelve():
-    assert len(ROLE_NAMES) == 12
+def test_roles_are_thirteen():
+    assert len(ROLE_NAMES) == 13
 
 
 def test_roles_contain_expected():
     expected = {
-        "merchant", "guard", "peasant", "elder",
+        "merchant", "guard", "peasant", "peasant_woman", "elder",
         "tavernkeeper", "blacksmith", "fisherman", "child",
         "veteran", "cleric", "necromancer", "mage",
     }

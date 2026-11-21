@@ -17,6 +17,7 @@ import re
 from burt import world
 from burt import magic
 from burt import progression
+from burt import faith
 from typing import Any
 
 # ---------------------------------------------------------------------
@@ -27,6 +28,7 @@ ROLE_NAMES: tuple[str, ...] = (
     "merchant",
     "guard",
     "peasant",
+    "peasant_woman",
     "elder",
     "tavernkeeper",
     "blacksmith",
@@ -150,6 +152,7 @@ def create_initial_state(
             "wallet": dict(STARTING_WALLET),
             "skills_visible": [],
             "state": "exploring",
+            "faith": faith.STATUS_NEUTRAL,
         },
         "hidden": {
             "hp_raw": STARTING_HP,
@@ -159,6 +162,8 @@ def create_initial_state(
             "effects_detail": [],
             "dot_effects": [],
             "reputation": {role: 0 for role in ROLE_NAMES},
+            "reputation_overall": 0,
+            "faith": faith.new_state(),
             "skills_raw": [],
             "quests_raw": [],
             "location_graph": starting_graph,
@@ -242,6 +247,32 @@ def validate_state(state: dict[str, Any]) -> None:
 
     # visible: сон
     _require_int(visible, "sleep_counter", minimum=0, maximum=SLEEP_FORCED_AT)
+
+    # visible/hidden: вера (§33). Old saves may miss the field; main
+    # repairs them via faith.ensure_runtime before the next save.
+    if "faith" in visible:
+        if visible["faith"] not in faith.STATUSES:
+            raise ValueError(
+                f"visible.faith must be one of {faith.STATUSES}, "
+                f"got {visible['faith']!r}"
+            )
+    if "faith" in hidden:
+        block = hidden["faith"]
+        if not isinstance(block, dict):
+            raise ValueError("hidden.faith must be dict")
+        if block.get("status") not in faith.STATUSES:
+            raise ValueError(
+                f"hidden.faith.status must be one of {faith.STATUSES}, "
+                f"got {block.get('status')!r}"
+            )
+        kfrom = block.get("killer_from")
+        if kfrom is not None and kfrom not in faith.KILLER_FROM:
+            raise ValueError(
+                f"hidden.faith.killer_from must be one of "
+                f"{faith.KILLER_FROM} or None, got {kfrom!r}"
+            )
+    if "reputation_overall" in hidden:
+        _require_int(hidden, "reputation_overall")
 
     # hidden: current_mode + dialog_state consistency
     if hidden.get("current_mode") not in VALID_STATES:

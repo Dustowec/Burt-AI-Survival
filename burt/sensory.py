@@ -19,6 +19,7 @@ from __future__ import annotations
 import config
 from burt.combat import CombatState, BurtStats, EnemyInstance
 from burt.bestiary import ENEMIES
+from burt import faith
 from burt import progression
 from burt.state import canonical_date
 
@@ -75,11 +76,23 @@ def _format_state(visible: dict) -> str:
     if config.SHOW_DATE:
         lines.append(f"Date: {canonical_date(visible['date'])}")
 
+    faith_line = _format_faith(visible)
+    if faith_line is not None:
+        lines.append(faith_line)
+
     effects_line = _format_effects(visible.get("effects") or [])
     if effects_line is not None:
         lines.append(effects_line)
 
     return "\n".join(lines)
+
+
+def _format_faith(visible: dict) -> str | None:
+    """§33: Burt sees only paladin / heretic / killer (neutral is hidden)."""
+    status = visible.get("faith")
+    if status in faith.STATUSES and status != faith.STATUS_NEUTRAL:
+        return f"Faith: {status}"
+    return None
 
 
 def _format_hp_mp(visible: dict) -> str:

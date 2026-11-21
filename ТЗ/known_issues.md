@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ 323f0d6 + working tree` · Verified: 21.11.2026 · Tests: 2463 passed
+Spec: v0.7.0 · Code: `main @ 323f0d6 + working tree` · Verified: 21.11.2026 · Tests: 2534 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -259,13 +259,50 @@ Implemented in `burt/reputation.py`, wired through `loop.py`.
 
 **Code:** dialogue and quests never change reputation; no effects are applied anywhere.
 
-### 10. Faith, killer status and crime do not exist (§33, §34) — NOT IMPLEMENTED
+### 10. Faith, statuses and crime (§33, §34) — PARTIAL (core done 21.11.2026)
 
-**Evidence:** `grep faith|paladin|heretic|killer` matches only `npc.resolve_heretic_deception`.
+**Done:** `burt/faith.py` + `state`/`sensory` + `quests`/`loop` wiring.
 
-**Spec requires:** statuses neutral / paladin / heretic / killer, paladin and heretic chains (K1-K2-K3), god's punishment `1 * level`, killing a resident blocks quests for life, cleric and necromancer hostility, killer skips chain steps 1-2.
+- statuses neutral / paladin / heretic / killer (`hidden["faith"]`,
+  `visible["faith"]`, `[STATE] -> "Faith: ..."`; neutral hidden);
+- paladin chain (cleric): K1 20 daggers + 2 staffs -> K2 5 closed role
+  quests (fail resets, chains do not count) -> K3 donate all (0 coins
+  auto) -> paladin;
+- heretic chain (necromancer): K1 10 daggers -> K2 deceive 3 NPCs
+  (first roll >= 3, one try per NPC) -> K3 insult the cleric + donate
+  (0 coins still needs the action) -> heretic;
+- killer skips K1-K2 and gets K3 from the necromancer;
+- chains are strict (no 1d6 partial acceptance); the finale fails the
+  parallel chain; rewards are only the status, the scroll never shows a
+  chain or a reward;
+- crime (§34): a resident can be killed from the dialogue
+  (`dialog_attack`, instantly, no combat rounds); status killer,
+  all active quests fail, rep -5 overall / -10 the victim's role, a
+  killed quest giver is blocked for life (-1 never expires), children
+  and peasants flee, residents have no dialogue after the crime;
+- god's wrath: `1 * level`, queued by paladin -> killer and served once
+  at the first cleric meeting (can kill, cause `god_wrath`);
+- `hostility()` predicates are ready for the NPC-combat task.
 
-**Code:** no status field in state at all, so nothing else can be layered on top.
+**Still open (next task):**
+
+- NPC combat / hostility: a guard fights a killer, the cleric fights
+  after the punishment, the necromancer attacks a paladin, the cleric
+  attacks a heretic after the finale;
+- the killed-giver life block only covers role quests; the faith chain
+  givers are blocked through `faith.paladin_chain_blocked` /
+  `heretic_chain_blocked` when the necromancer is killed;
+- "heretic-killer" is stored as `killer` + `killer_from`, the report
+  shows `Faith: killer` (the spec says Burt sees only three statuses).
+
+**Evidence:** `burt/faith.py`, `burt/state.py` (faith fields),
+`burt/sensory.py::_format_faith`, `burt/quests.py` (chains, strict
+completion, life block), `burt/loop.py` (`dialog_attack`,
+`dialog_donate`, K2 lie hook, K3 insult hook, chain issuing, flee),
+`quests_templates.json` (pala_1..3 / heretic_1..3 per §33).
+
+**Tests:** `test_faith.py` (51), `test_faith_chain_loop.py` (7),
+`test_faith_crime.py` (8), `test_faith_status_sensory.py` (4).
 
 ### 11. Random events, preacher and effects do not exist (§10, §13) — NOT IMPLEMENTED
 
@@ -365,7 +402,8 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`.
 
 ### 22. Role key mismatch — PARTIAL
 
-- `peasant_woman` exists in `replicas.json` and in `npc.py` categories, but is missing from `state.ROLE_NAMES` (`state.py:23-36`), so `validate_state` would reject it.
+- `peasant_woman` is now in `state.ROLE_NAMES` (13 roles), so killing or
+  trading with her updates reputation and passes `validate_state`.
 - `ROLE_NAMES` has `mage`, while `replicas.json` uses `mage_event`. **Fixed for reputation and trade:** `loop._REP_ROLE_ALIAS` maps `mage_event -> mage`, so the mage's shop and reputation are keyed correctly (see `test_magic_wiring.py::TestMageShop`). The raw replica key is still `mage_event` in `npcs_here`.
 
 ### 23. World graph has 2-4 exits instead of 4 neighbours (§17) — ACCEPTED
@@ -374,7 +412,7 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`.
 
 ### 24. Documentation drift — PARTIAL
 
-README was refreshed in v0.8.9-BETA: version, 2457 tests, HANDOFF-1..22,
+README was refreshed in v0.9.0-BETA: version, 2534 tests, HANDOFF-1..24,
 the finished life cycle, the new_bug mechanics and the "Что дальше"
 section now match the code. Remaining drift: the module/test lists in
 README are not exhaustive, and older HANDOFFs keep their historical

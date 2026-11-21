@@ -23,27 +23,22 @@
   "pala_2": {
     "chain": "pala",
     "step": 2,
-    "title": "Staves of Shamans",
-    "type": "deliver",
-    "deliver_items": [
-      {
-        "name": "goblin_staff",
-        "count": 5
-      }
-    ],
-    "required": null,
-    "deadline_days": 30,
+    "title": "Help Five People",
+    "type": "help",
+    "deliver_items": null,
+    "required": 5,
+    "deadline_days": null,
     "next_chain_step": "pala_3",
     "id": "pala_2",
-    "target": null
+    "target": "*"
   },
   "pala_3": {
     "chain": "pala",
     "step": 3,
-    "title": "Trial of Light",
+    "title": "Donate All to the Temple",
     "type": "chain",
     "deliver_items": null,
-    "required": 3,
+    "required": 1,
     "deadline_days": null,
     "next_chain_step": null,
     "id": "pala_3",
@@ -52,10 +47,15 @@
   "heretic_1": {
     "chain": "heretic",
     "step": 1,
-    "title": "Eyes of Darkness",
-    "type": "deceive",
-    "deliver_items": null,
-    "required": 3,
+    "title": "Ten Goblin Daggers",
+    "type": "deliver",
+    "deliver_items": [
+      {
+        "name": "goblin_dagger",
+        "count": 10
+      }
+    ],
+    "required": null,
     "deadline_days": null,
     "next_chain_step": "heretic_2",
     "id": "heretic_1",
@@ -64,11 +64,11 @@
   "heretic_2": {
     "chain": "heretic",
     "step": 2,
-    "title": "Whisper in the Dark",
-    "type": "help",
+    "title": "Deceive Three",
+    "type": "deceive",
     "deliver_items": null,
-    "required": 5,
-    "deadline_days": 20,
+    "required": 3,
+    "deadline_days": null,
     "next_chain_step": "heretic_3",
     "id": "heretic_2",
     "target": null
@@ -76,10 +76,10 @@
   "heretic_3": {
     "chain": "heretic",
     "step": 3,
-    "title": "Seal of Darkness",
+    "title": "Insult the Cleric and Donate",
     "type": "chain",
     "deliver_items": null,
-    "required": 1,
+    "required": 2,
     "deadline_days": null,
     "next_chain_step": null,
     "id": "heretic_3",

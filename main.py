@@ -27,6 +27,7 @@ import config
 from burt import (
     dice,
     epitaphs as epitaphs_mod,
+    faith,
     hunger,
     loop,
     llm_client,
@@ -142,6 +143,8 @@ def _ensure_runtime_fields(state: dict) -> None:
     progression.ensure_state(visible)
     # §8: repair skill records and re-sync the visible mirror.
     skills.ensure_state(hidden, visible)
+    # §33: faith statuses and chain counters (old saves get neutral).
+    faith.ensure_runtime(state)
 
 
 # ---------------------------------------------------------------------
@@ -201,6 +204,11 @@ def _determine_death_cause(state: dict, action: loop.Action) -> str:
     visible = state["visible"]
     hidden = state["hidden"]
     hp = visible.get("hp", 0)
+
+    # §34: a queued god's wrath (paladin -> killer) sets an explicit cause.
+    override = hidden.get("death_cause_override")
+    if override:
+        return override
 
     # 1. Combat action
     if action.key.startswith("attack_") or action.key in ("block", "flee"):
@@ -618,6 +626,8 @@ async def run_turn(
         # new_bug §6: the epitaph belongs to a FINAL death; game_loop
         # writes it only when the resurrection roll fails (roll != 6).
         _sync_meta_from_hidden(state)
+        # §34: the god's wrath cause is consumed by this death only.
+        hidden.pop("death_cause_override", None)
         if game_session:
             game_session.append_turn(
                 day=day,

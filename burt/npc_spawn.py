@@ -236,3 +236,21 @@ def reset_cache(hidden: dict) -> None:
     """Drop every cached node (used when the world is wiped)."""
     hidden["npcs_by_node"] = {}
     hidden["npcs_here"] = []
+
+
+def remove_npc(hidden: dict, node_id: str, role: str) -> bool:
+    """§34: a killed resident is gone for this life."""
+    removed = False
+    roles = list(hidden.get("npcs_here") or [])
+    if role in roles:
+        roles.remove(role)
+        hidden["npcs_here"] = roles
+        removed = True
+    cache = hidden.get("npcs_by_node")
+    if isinstance(cache, dict):
+        cached = list(cache.get(node_id) or [])
+        if role in cached:
+            cached.remove(role)
+            cache[node_id] = cached
+            removed = True
+    return removed

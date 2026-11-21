@@ -54,7 +54,7 @@ class TestQuestCreation:
         assert q.chain_step is None
 
     def test_quest_with_deliver_items(self):
-        items = [{"name": "кинжал", "count": 5}]
+        items = [{"name": "РєРёРЅР¶Р°Р»", "count": 5}]
         q = Quest(id="q1", giver_role="A", giver_node="n1", title="T", status="active", type="deliver", deliver_items=items)
         assert q.deliver_items == items
 
@@ -119,11 +119,11 @@ class TestGive:
         quest_give("pala_1", "elder", st)
         assert st["hidden"]["quests_issued_today"]["start"] == 1
 
-    def test_give_sets_deadline(self):
+    def test_chain_steps_have_no_deadline(self):
         st = make_state()
         quest_give("pala_2", "elder", st)
         q = st["hidden"]["quests_raw"][0]
-        assert q["deadline_day"] == 31  # day 1 + 30
+        assert q["deadline_day"] is None  # §33: chains have no deadline
 
     def test_give_sets_giver_node(self):
         st = make_state(node_id="forest_1")
@@ -135,10 +135,10 @@ class TestGive:
 class TestProgress:
     def test_help_progress(self):
         st = make_state()
-        quest_give("heretic_2", "elder", st)
-        ok, msg = quest_progress("heretic_2", 1, st)
+        quest_give("veteran_3", "veteran", st)
+        ok, msg = quest_progress("veteran_3", 1, st)
         assert ok is True
-        q = quest_get_active("heretic_2", st)
+        q = quest_get_active("veteran_3", st)
         assert q.progress == 1
 
     def test_deliver_progress_error(self):
@@ -160,212 +160,8 @@ class TestProgress:
 
     def test_progress_updates_dict(self):
         st = make_state()
-        quest_give("heretic_2", "elder", st)
-        quest_progress("heretic_2", 2, st)
-        d = st["hidden"]["quests_raw"][0]
-        assert d["progress"] == 2
-
-
-class TestDeceive:
-    def test_deceive_success_roll(self):
-        st = make_state()
-        quest_give("heretic_1", "elder", st)
-        # Mock dice.roll_d6 to return 6
-        import burt.quests as qmod
-        qmod._templates_cache = None
-        orig = qmod.dice.roll_d6
-        qmod.dice.roll_d6 = lambda: 6
-        ok, msg = try_deceive("elder", "start", st)
-        qmod.dice.roll_d6 = orig
-        assert ok is True
-
-    def test_deceive_fail_roll_rep_penalty(self):
-        st = make_state()
-        import burt.quests as qmod
-        qmod._templates_cache = None
-        orig = qmod.dice.roll_d6
-        qmod.dice.roll_d6 = lambda: 1
-        ok, msg = try_deceive("elder", "start", st)
-        qmod.dice.roll_d6 = orig
-        assert ok is False
-        rep = st["hidden"]["reputation"].get("elder", 0)
-        assert rep == -1
-
-    def test_deceive_cooldown_prevents_second_penalty(self):
-        st = make_state()
-        import burt.quests as qmod
-        qmod._templates_cache = None
-        qmod.dice.roll_d6 = lambda: 1
-        try_deceive("elder", "start", st)
-        rep_before = st["hidden"]["reputation"].get("elder", 0)
-        try_deceive("elder", "start", st)
-        rep_after = st["hidden"]["reputation"].get("elder", 0)
-        assert rep_after == rep_before  # no second penalty
-
-"""Tests for burt/quests.py -- section 18, 33, 36 spec."""
-import pytest
-
-from burt.quests import (
-    Quest,
-    quest_can_give,
-    quest_give,
-    quest_progress,
-    try_deceive,
-    quest_complete,
-    quest_fail,
-    expire_blockades,
-    expire_deceit_penalties,
-    quest_get_active,
-)
-
-
-def make_state(day=1, node_id="start", mode="exploring"):
-    return {
-        "visible": {
-            "hp": 10, "hp_max": 10, "mp": 3, "mp_max": 3,
-            "eat": True, "sleep_counter": 5, "date": f"{day} day",
-            "effects": [],
-            "location": {"name": "Crossroads", "exits": ["north"]},
-            "inventory": [{"name": "goblin_dagger", "count": 20},
-                          {"name": "goblin_staff", "count": 2}],
-            "wallet": {"coin": 50},
-            "skills_visible": [],
-            "quests_issued_today": {},
-        },
-        "hidden": {
-            "current_mode": mode, "current_node_id": node_id,
-            "day": day, "step": 0,
-            "quests_raw": [],
-            "role_quest_block": {},
-            "quest_deceive_attempts": {},
-            "deceit_penalty_until": {},
-            "quests_issued_today": {},
-            "killed_quest_givers": [],
-            "reputation": {},
-        },
-    }
-
-
-class TestQuestCreation:
-    def test_quest_defaults(self):
-        q = Quest(id="test", giver_role="elder", giver_node="start", title="Test", status="active", type="help")
-        assert q.id == "test"
-        assert q.progress == 0
-        assert q.required == 0
-        assert q.deliver_items is None
-        assert q.deadline_day is None
-        assert q.chain is None
-        assert q.chain_step is None
-
-    def test_quest_with_deliver_items(self):
-        items = [{"name": "кинжал", "count": 5}]
-        q = Quest(id="q1", giver_role="A", giver_node="n1", title="T", status="active", type="deliver", deliver_items=items)
-        assert q.deliver_items == items
-
-    def test_quest_with_deadline(self):
-        q = Quest(id="q1", giver_role="A", giver_node="n1", title="T", status="active", type="help", required=3, deadline_day=10)
-        assert q.deadline_day == 10
-
-    def test_quest_chain_fields(self):
-        q = Quest(id="pala_1", giver_role="A", giver_node="n1", title="T", status="active", type="chain", chain="pala", chain_step=1)
-        assert q.chain == "pala"
-        assert q.chain_step == 1
-
-
-class TestCanGive:
-    def test_can_give_no_active(self):
-        st = make_state()
-        assert quest_can_give("elder", st) is True
-
-    def test_cannot_give_active_quest(self):
-        st = make_state()
-        st["hidden"]["quests_raw"].append({"id": "pala_1", "giver_role": "elder", "status": "active"})
-        assert quest_can_give("elder", st) is False
-
-    def test_cannot_give_blocked(self):
-        st = make_state()
-        st["hidden"]["role_quest_block"]["elder"] = 99
-        assert quest_can_give("elder", st) is False
-
-    def test_cannot_give_limit_3(self):
-        st = make_state()
-        st["hidden"]["quests_issued_today"]["start"] = 3
-        assert quest_can_give("elder", st) is False
-
-    def test_can_give_after_block_expires(self):
-        st = make_state(day=100)
-        st["hidden"]["role_quest_block"]["elder"] = 50
-        assert quest_can_give("elder", st) is True
-
-    def test_can_give_different_role(self):
-        st = make_state()
-        st["hidden"]["quests_raw"].append({"id": "pala_1", "giver_role": "elder", "status": "active"})
-        assert quest_can_give("merchant", st) is True
-
-
-class TestGive:
-    def test_give_from_template(self):
-        st = make_state()
-        ok, msg = quest_give("pala_1", "elder", st)
-        assert ok is True
-        assert len(st["hidden"]["quests_raw"]) == 1
-        q = st["hidden"]["quests_raw"][0]
-        assert q["status"] == "active"
-        assert q["type"] == "deliver"
-
-    def test_give_unknown_returns_false(self):
-        st = make_state()
-        ok, msg = quest_give("nonexistent", "elder", st)
-        assert ok is False
-
-    def test_give_increments_issued_today(self):
-        st = make_state()
-        quest_give("pala_1", "elder", st)
-        assert st["hidden"]["quests_issued_today"]["start"] == 1
-
-    def test_give_sets_deadline(self):
-        st = make_state()
-        quest_give("pala_2", "elder", st)
-        q = st["hidden"]["quests_raw"][0]
-        assert q["deadline_day"] == 31  # day 1 + 30
-
-    def test_give_sets_giver_node(self):
-        st = make_state(node_id="forest_1")
-        quest_give("pala_1", "elder", st)
-        q = st["hidden"]["quests_raw"][0]
-        assert q["giver_node"] == "forest_1"
-
-
-class TestProgress:
-    def test_help_progress(self):
-        st = make_state()
-        quest_give("heretic_2", "elder", st)
-        ok, msg = quest_progress("heretic_2", 1, st)
-        assert ok is True
-        q = quest_get_active("heretic_2", st)
-        assert q.progress == 1
-
-    def test_deliver_progress_error(self):
-        st = make_state()
-        quest_give("pala_1", "elder", st)
-        ok, msg = quest_progress("pala_1", 1, st)
-        assert ok is False
-
-    def test_deceive_progress_error(self):
-        st = make_state()
-        quest_give("heretic_1", "elder", st)
-        ok, msg = quest_progress("heretic_1", 1, st)
-        assert ok is False
-
-    def test_progress_no_active_quest(self):
-        st = make_state()
-        ok, msg = quest_progress("pala_1", 1, st)
-        assert ok is False
-
-    def test_progress_updates_dict(self):
-        st = make_state()
-        quest_give("heretic_2", "elder", st)
-        quest_progress("heretic_2", 2, st)
+        quest_give("veteran_3", "veteran", st)
+        quest_progress("veteran_3", 2, st)
         d = st["hidden"]["quests_raw"][0]
         assert d["progress"] == 2
 
@@ -425,12 +221,12 @@ class TestDeceive:
 
     def test_deceive_increment_progress_on_success(self):
         st = make_state()
-        quest_give("heretic_1", "elder", st)
+        quest_give("heretic_2", "elder", st)
         import burt.quests as qmod
         qmod._templates_cache = None
         qmod.dice.roll_d6 = lambda: 6
         try_deceive("elder", "start", st)
-        q = quest_get_active("heretic_1", st)
+        q = quest_get_active("heretic_2", st)
         assert q.progress == 1
 
     def test_deceive_different_node_different_attempt(self):
@@ -493,20 +289,19 @@ class TestComplete:
 
     def test_complete_help_full(self):
         st = make_state()
-        quest_give("heretic_2", "elder", st)
-        quest_progress("heretic_2", 5, st)
-        ok, msg = quest_complete("heretic_2", st)
+        quest_give("veteran_3", "veteran", st)
+        quest_progress("veteran_3", 1, st)
+        ok, msg = quest_complete("veteran_3", st)
         assert ok is True
 
     def test_complete_help_partial_roll_5(self):
         st = make_state()
-        quest_give("heretic_2", "elder", st)
-        quest_progress("heretic_2", 2, st)
+        quest_give("veteran_3", "veteran", st)
         import burt.quests as qmod
         qmod._templates_cache = None
         orig = qmod.dice.roll_d6
         qmod.dice.roll_d6 = lambda: 5
-        ok, msg = quest_complete("heretic_2", st)
+        ok, msg = quest_complete("veteran_3", st)
         qmod.dice.roll_d6 = orig
         assert ok is True
 
@@ -514,6 +309,20 @@ class TestComplete:
         st = make_state()
         ok, msg = quest_complete("pala_1", st)
         assert ok is False
+
+    def test_chain_partial_is_refused(self):
+        st = make_state()
+        quest_give("pala_1", "elder", st)
+        st["visible"]["inventory"] = []
+        import burt.quests as qmod
+        orig = qmod.dice.roll_d6
+        qmod.dice.roll_d6 = lambda: 5
+        try:
+            ok, msg = quest_complete("pala_1", st)
+        finally:
+            qmod.dice.roll_d6 = orig
+        assert ok is False
+        assert quest_get_active("pala_1", st) is not None
 
     def test_complete_removes_items(self):
         st = make_state()
@@ -624,15 +433,25 @@ class TestChain:
         assert q2.chain == "pala"
         assert q2.chain_step == 2
 
-    def test_chain_stub_final(self):
+    def test_chain_final_awards_status(self):
         st = make_state()
         quest_give("pala_1", "elder", st)
-        quest_complete("pala_1", st)
-        quest_complete("pala_2", st)
-        quest_complete("pala_3", st)
-        # No more quests after pala_3 (stub final)
-        active_count = sum(1 for d in st["hidden"]["quests_raw"] if d["status"] == "active")
+        assert quest_complete("pala_1", st)[0] is True
+        for d in st["hidden"]["quests_raw"]:
+            if d["id"] == "pala_2":
+                d["progress"] = d.get("required", 5)
+        assert quest_complete("pala_2", st)[0] is True
+        for d in st["hidden"]["quests_raw"]:
+            if d["id"] == "pala_3":
+                d["progress"] = 1
+        assert quest_complete("pala_3", st)[0] is True
+        active_count = sum(
+            1 for d in st["hidden"]["quests_raw"]
+            if d["status"] == "active"
+        )
         assert active_count == 0
+        from burt import faith
+        assert faith.get_status(st) == faith.STATUS_PALADIN
 
     def test_chain_does_not_increment_issued(self):
         st = make_state()
@@ -663,10 +482,10 @@ class TestEdgeCases:
 
     def test_negative_progress(self):
         st = make_state()
-        quest_give("heretic_2", "elder", st)
-        ok, msg = quest_progress("heretic_2", -5, st)
+        quest_give("veteran_3", "veteran", st)
+        ok, msg = quest_progress("veteran_3", -5, st)
         assert ok is True
-        q = quest_get_active("heretic_2", st)
+        q = quest_get_active("veteran_3", st)
         assert q.progress == -5
 
     def test_get_active_returns_none_for_completed(self):

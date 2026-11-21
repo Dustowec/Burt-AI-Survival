@@ -73,7 +73,7 @@ _ROLE_CATEGORIES: dict[str, set[str]] = {
     "fisherman":    {"truth", "polite", "lie",    "trade",        "quest", "exit"},
     "child":        {"truth", "polite", "charm",                   "exit"},
     "veteran":      {"truth", "polite", "lie",    "threat",        "train", "quest", "exit"},
-    "cleric":       {"truth", "polite", "lie",                      "train", "quest", "exit"},
+    "cleric":       {"truth", "polite", "lie", "threat",            "train", "quest", "exit"},
     "necromancer":  {"truth", "polite", "lie",    "trade", "bribe", "train", "quest", "exit"},
     "tavernkeeper": {"truth", "polite", "lie",    "trade", "bribe",        "quest", "exit"},
     "mage_event":   {"truth", "polite", "trade", "train", "bribe", "deception", "exit"},
