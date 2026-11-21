@@ -1,6 +1,7 @@
 """TZ-5: wipe LLM history when starting a new life."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -183,3 +184,56 @@ class TestEpitaphInjectedInNewLifeReport:
 
         assert "You remember your past life" in result.sensory_report
         assert "I died in battle" in result.sensory_report
+
+
+# ------------------------------------------------------------------
+# Test 4 - the log line reports the memory of the NEW life
+# ------------------------------------------------------------------
+
+class TestMemoryFlagInLog:
+    @pytest.mark.asyncio
+    async def test_log_reports_inherited_memory(self, caplog):
+        from main import game_loop
+
+        state = _mk_state(life=1)
+        calls = {"n": 0}
+
+        async def fake_run_turn(state, history, rng, dry_run, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return main.TurnResult(
+                    game_over=True, history=history, death_cause="hunger",
+                )
+            return main.TurnResult(game_over=False, history=history)
+
+        new_life = _mk_state(life=2)
+        new_life["meta"]["memory"] = "I learned that bread is a promise."
+
+        res_mod.ResurrectionOutcome = type(
+            "E", (), {"SUCCESS": "success", "FAILED": "failed"}
+        )
+        caplog.set_level(logging.INFO, logger="burt.main")
+
+        try:
+            with (
+                patch("main.run_turn", side_effect=fake_run_turn),
+                patch("main.resurrection.check_resurrection",
+                      return_value="failed"),
+                patch("main.state_io.save_state"),
+                patch("main._write_epitaph", new=AsyncMock()),
+                patch("main.make_new_state", return_value=new_life),
+            ):
+                await game_loop(
+                    state,
+                    [],
+                    max_steps=2,
+                    dry_run=False,
+                    state_path=Path("x.json"),
+                )
+        finally:
+            setattr(
+                res_mod, "ResurrectionOutcome", _REAL_ResurrectionOutcome
+            )
+
+        assert "memory=yes" in caplog.text
+        assert "memory=no" not in caplog.text

@@ -100,9 +100,18 @@ class TestBurtSystemPromptP3Rules:
         assert "if an item is not in [hands], you do not have it" in prompts.BURT_SYSTEM_PROMPT.lower()
 
     def test_combat_mode_rule(self):
-        # Model must recognize [COMBAT] and pick appropriate actions
-        assert "if [combat] is present" in prompts.BURT_SYSTEM_PROMPT.lower()
-        assert "attack, block, or flee" in prompts.BURT_SYSTEM_PROMPT.lower()
+        # Spec 23/26: in combat the menu is attack / block / flee / cast
+        # plus free tools; eating, drinking, walking and searching are
+        # impossible.
+        text = prompts.BURT_SYSTEM_PROMPT.lower()
+        assert "if [combat] is present" in text
+        assert "choose only from the menu" in text
+        assert "in combat you cannot eat, drink, walk or search" in text
+
+    def test_gated_cast_is_not_promised(self):
+        # Spec 9: cast is offered only when staff + spell + teacher are all
+        # in place, so the static prompt must stay silent about it.
+        assert "cast" not in prompts.BURT_SYSTEM_PROMPT.lower()
 
 
 # ---------------------------------------------------------------------

@@ -71,6 +71,9 @@ class ActionResult:
     direction_moved: str | None = None
     # §13: the preacher dialogue is one action; its effect starts after it.
     skip_effect_tick: bool = False
+    # §11: world event of this turn, injected as the first line of the
+    # next prompt (reason first, then the sensory report).
+    inject: str | None = None
 
 
 @dataclass
@@ -123,6 +126,20 @@ _TOOL_LABELS: dict[str, str] = {
     "remember": "Remember",
     "diary": "Diary",
 }
+
+# §11: why Burt did not get where he was going. Reason only, no numbers.
+_MICRO_EVENT_TEXT = {
+    "stone": "You stumbled over a sharp stone.",
+    "tree": "You hit a fallen log.",
+    "lightning": "Lightning struck you.",
+    "god_wrath": "The gods punish you.",
+}
+_AMBUSH_TEXT = "You fell into an ambush."
+_BAD_EVENT_TEXT = {
+    "trap": "You stepped into a trap.",
+    "sprain": "You twisted your ankle.",
+}
+
 
 # new_bug §3: blessing text depends on the REAL delta.
 BLESSING_RESTORES = "A blessing restores your vitality."
@@ -2485,10 +2502,14 @@ def _handle_movement_failure(
             "damage": damage,
         }
 
+        inject = _MICRO_EVENT_TEXT.get(
+            micro_event.event_type, "You stumble.",
+        )
+
         if visible.get("hp", 0) <= 0:
             return ActionResult(events=[event_msg], game_over=True)
 
-        return ActionResult(events=[event_msg])
+        return ActionResult(events=[event_msg], inject=inject)
 
     # ── fail_bad: only bad_movement_event (micro skipped) ───
     # move_result == "fail_bad"
@@ -2526,10 +2547,13 @@ def _handle_movement_failure(
         "damage": ev.extra_damage,
     }
 
+    inject = _BAD_EVENT_TEXT.get(ev.event_type)
+
     if visible.get("hp", 0) <= 0:
         return ActionResult(events=events_list, game_over=True)
 
     if ev.starts_combat:
+        inject = _AMBUSH_TEXT
         spawn_key = _ENCOUNTER_LOCATIONS.get(location_type)
         if spawn_key is not None:
             enemies = spawn.spawn_for_level(
@@ -2542,9 +2566,10 @@ def _handle_movement_failure(
                 events_list.extend(started.events)
                 return ActionResult(
                     events=events_list, game_over=started.game_over,
+                    inject=inject,
                 )
 
-    return ActionResult(events=events_list)
+    return ActionResult(events=events_list, inject=inject)
 
 
 def _arrive_at_node(

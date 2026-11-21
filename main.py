@@ -342,13 +342,20 @@ async def _write_memory_summary(
     logger.info("memory_summary written life=%d", meta["life"])
 
 
-def _build_system_prompt(state: dict) -> str:
-    """Build BURT_SYSTEM_PROMPT with optional memory_summary injection."""
+def _build_system_prompt(state: dict, menu: list | None = None) -> str:
+    """Build BURT_SYSTEM_PROMPT with optional memory_summary injection.
+
+    Spec 9/23: cast is a gated choice (staff + spell + teacher). It is
+    mentioned only when the current menu really offers it, so the hint
+    and the option always appear together.
+    """
     base = prompts.BURT_SYSTEM_PROMPT
     meta = state.get("meta", {})
     summary = meta.get("memory_summary")
     if summary:
         base += f"\n\nAcross all your lives you understood:\n{summary}"
+    if menu and any(a.key == "cast" for a in menu):
+        base += "\n\nYour magic is ready: cast is in the menu."
     return base
 
 
@@ -442,7 +449,12 @@ async def run_turn(
                               death_cause="diarrhea")
 
     # -- 1. Sensory report ----------------------------------------
+    # §11: the reason comes first, the report after it. It is a fact
+    # produced by the previous turn, so it is read straight from state.
     report = sensory.format_sensory_report(visible)
+    inject_text = hidden.pop("pending_event_inject", None)
+    if inject_text:
+        report = f"{inject_text}\n\n{report}"
     if hp_lost > 0:
         report = f"You take {hp_lost} damage from poison.\n\n" + report
 
@@ -509,7 +521,7 @@ async def run_turn(
 
     try:
         answer, history = await llm_client.call_llm(
-            _build_system_prompt(state), llm_prompt, history,
+            _build_system_prompt(state, menu), llm_prompt, history,
         )
     except Exception as exc:
         if plugin is not None:
@@ -544,7 +556,7 @@ async def run_turn(
             )
         try:
             answer, history = await llm_client.call_llm(
-                _build_system_prompt(state), loop.INVALID_CHOICE_KICK, history,
+                _build_system_prompt(state, menu), loop.INVALID_CHOICE_KICK, history,
             )
         except Exception as exc:
             if plugin is not None:
@@ -610,6 +622,11 @@ async def run_turn(
 
     result = loop.execute_action(action, state, rng=rng,
                                  dialogue_engine=dialogue_engine)
+
+    # §11: the world event of this turn is shown to the model once,
+    # as the first line of the next prompt (not kept in history).
+    if result.inject:
+        hidden["pending_event_inject"] = result.inject
 
     # §26: a free tool ends the turn but its text goes to the next prompt.
     if (action.key in loop.TOOL_KEYS
@@ -882,7 +899,6 @@ async def game_loop(
             else:
                 # Если FAILED — пишем эпитафию и создаём новую жизнь.
                 # new_bug §6: только окончательная смерть (roll != 6).
-                old_memory = state["meta"].get("memory")
                 old_life = state["meta"]["life"]
                 try:
                     await _write_epitaph(
@@ -913,9 +929,12 @@ async def game_loop(
                 if state["meta"].get("life", 1) >= 10 and epitaphs_dir is not None:
                     await _write_memory_summary(state, epitaphs_dir)
 
+                # The new life inherits the epitaph of the dead one, so
+                # the flag describes the NEW state, not the dying life.
+                inherited = bool(state["meta"].get("memory"))
                 logger.info(
                     "Game over (life %d) → new life %d started (memory=%s)",
-                    old_life, new_life, "yes" if old_memory else "no",
+                    old_life, new_life, "yes" if inherited else "no",
                 )
 
         # Save the CURRENT life (after resurrection or a new life), so a
