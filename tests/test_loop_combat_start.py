@@ -165,9 +165,9 @@ class TestStartCombatTz10:
 class TestTz10EncounterConsistency:
     """TZ-10: reveal/menu/combat must agree (single enemy at lvl<5)."""
 
-    def test_pending_encounter_capped_at_level_1(self):
+    def test_pending_encounter_capped_at_level_4(self):
         st = make_state()
-        st["visible"]["level"] = 1
+        st["visible"]["level"] = 4
         # forest roll=1 -> spawn_random: type=4 (wolf), size=2 (pack of 2 wolves).
         rng = _seq_rng([1, 4, 2])
         result = _maybe_start_combat_on_enter(
@@ -178,9 +178,9 @@ class TestTz10EncounterConsistency:
         assert isinstance(pe, dict)
         assert pe["enemy_keys"] == ["wolf"]  # capped to 1
 
-    def test_ambush_capped_at_level_1(self):
+    def test_ambush_capped_at_level_4(self):
         st = make_state()
-        st["visible"]["level"] = 1
+        st["visible"]["level"] = 4
         # ambush: type=1 (wolf), size=1 (3 wolves) -> capped to 1 in combat.
         rng = _seq_rng([1, 1])
         _maybe_start_combat_on_enter(
@@ -268,6 +268,8 @@ class TestOnEntryEncounter:
 
     def test_forest_encounter_roll_1_creates_pending(self):
         st = make_state()
+        # Tutorial gate: level 2+ restores the normal table.
+        st["visible"]["level"] = 2
         # move=4, node rolls=4,4,4,4, encounter=1 -> attack,
         # spawn_random: type=4 (wolf), size=6 (1 wolf).
         rng = _seq_rng([4, 4, 4, 4, 4, 1, 4, 6])

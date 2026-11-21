@@ -1255,8 +1255,12 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
         hidden["current_mode"] = "exploring"
         dead_enemies = [e for e in result.combat.enemies if not e.alive]
         # §7: XP for every dead enemy, even if Burt fled afterwards.
+        club_granted = False
         if result.outcome != "burt_died" and dead_enemies:
-            _award_combat_xp(visible, hidden, len(dead_enemies), events)
+            club_granted = _award_combat_xp(
+                visible, hidden, len(dead_enemies), events,
+                dead_keys=[e.key for e in dead_enemies],
+            )
         if result.outcome == "burt_won":
             if dead_enemies:
                 enemy_keys = [e.key for e in dead_enemies]
@@ -1294,7 +1298,7 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
                     loot_parts.append(f"{drop.coins} coin")
                 if loot_parts:
                     events.append("Loot: " + "; ".join(loot_parts))
-                else:
+                elif not club_granted:
                     events.append("Loot: nothing.")
                 for quest_id in ready_quests:
                     events.append(
@@ -1336,10 +1340,16 @@ def _award_combat_xp(
     hidden: dict,
     dead_count: int,
     events: list[str],
-) -> None:
-    """§7: award kill XP at the end of a combat and apply level-ups."""
+    dead_keys: list[str] | None = None,
+) -> bool:
+    """§7: award kill XP at the end of a combat and apply level-ups.
+
+    Reaching level 2 grants one club as a simulated drop from the
+    tutorial young goblin. The club is deliberately not in loot.py.
+    Returns True when the club was granted this combat.
+    """
     if dead_count <= 0:
-        return
+        return False
     result = progression.award_kills(visible, dead_count)
     hidden["hp_raw"] = visible.get("hp", 0)
     hidden["mp_raw"] = visible.get("mp", 0)
@@ -1350,6 +1360,17 @@ def _award_combat_xp(
             f"You reach level {level}. "
             f"HP +{progression.HP_PER_LEVEL}, MP +{progression.MP_PER_LEVEL}."
         )
+
+    # Tutorial reward: 1 -> 2 transition only (level never goes down).
+    club_granted = False
+    if result.old_level < spawn.YOUNG_LEVEL <= result.new_level:
+        economy.add_item(visible, "club")
+        if dead_keys and spawn.YOUNG_GOBLIN_KEY in dead_keys:
+            events.append("You take a club from the young goblin.")
+        else:
+            events.append("You pick up a club.")
+        club_granted = True
+    return club_granted
 
 
 def _build_burt_stats(visible: dict, hidden: dict) -> BurtStats:
@@ -2368,8 +2389,10 @@ def _maybe_start_combat_on_enter(
     if hidden.get("combat") is not None:
         return None
 
+    level = visible.get("level", 1)
+
     if location_type == _AMBUSH_LOCATION:
-        enemies = spawn.spawn_ambush(rng(), rng())
+        enemies = spawn.ambush_for_level(level, rng(), rng())
         return _start_combat(enemies, "enemy", hidden, visible, rng)
 
     spawn_key = _ENCOUNTER_LOCATIONS.get(location_type)
@@ -2378,7 +2401,9 @@ def _maybe_start_combat_on_enter(
 
     roll = rng()
     if roll <= 2:
-        enemies = spawn.spawn_random(spawn_key, rng(), rng())
+        enemies = spawn.spawn_for_level(
+            spawn_key, level, rng(), rng(),
+        )
         if enemies:
             enemy_keys = list(enemies)
             # TZ-10: lvl < 5 -> capped to single enemy, matching combat.
@@ -2507,7 +2532,9 @@ def _handle_movement_failure(
     if ev.starts_combat:
         spawn_key = _ENCOUNTER_LOCATIONS.get(location_type)
         if spawn_key is not None:
-            enemies = spawn.spawn_random(spawn_key, rng(), rng())
+            enemies = spawn.spawn_for_level(
+                spawn_key, visible.get("level", 1), rng(), rng(),
+            )
             if enemies:
                 started = _start_combat(
                     enemies, "enemy", hidden, visible, rng,

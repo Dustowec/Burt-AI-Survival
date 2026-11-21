@@ -45,6 +45,15 @@ class Enemy:
 
 
 ENEMIES: dict[str, Enemy] = {
+    # Tutorial monster: level < 2 only, 3 HP, 0-1 fists.
+    "young_goblin": Enemy(
+        key="young_goblin",
+        name="young goblin",
+        hp_max=3,
+        damage_min=0,
+        damage_max=1,
+        weapon="fists",
+    ),
     "goblin": Enemy(
         key="goblin",
         name="goblin",

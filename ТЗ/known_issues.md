@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ v0.9.2-BETA` · Verified: 21.11.2026 · Tests: 2769 passed
+Spec: v0.7.0 · Code: `main @ v0.9.2-BETA + working tree` · Verified: 21.11.2026 · Tests: 2990 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -544,7 +544,7 @@ their historical notes.
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe -q            # 2769 passed (full: tests/ + root test_npc_integration.py)
+.\.venv\Scripts\pytest.exe -q            # 2990 passed (full: tests/ + root test_npc_integration.py)
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5

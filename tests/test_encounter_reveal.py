@@ -100,6 +100,8 @@ def _current_type(state):
 class TestOnEntryEncounter:
     def test_enter_encounter_location_creates_pending_not_combat(self):
         st = make_start_state()
+        # Tutorial gate: level 2+ restores the normal spawn table.
+        st["visible"]["level"] = 2
         # go_south -> forest. move=4, node rolls 4,4,4,4, enc=1,
         # spawn_type=4 (wolf), spawn_size=6 (1 wolf).
         rng = _seq_rng([4, 4, 4, 4, 4, 1, 4, 6])
@@ -128,6 +130,8 @@ class TestOnEntryEncounter:
         from burt import loop
         monkeypatch.setattr(loop.spawn, "spawn_random", lambda *a: [])
         st = make_start_state()
+        # Tutorial gate: level 2+ uses spawn_random, which is patched empty.
+        st["visible"]["level"] = 2
         # enc roll=1 means spawn attempted, but returns empty.
         rng = _seq_rng([4, 4, 4, 4, 4, 1, 4, 6])
         execute_action(Action("go_south", "Go"), st, rng=rng)

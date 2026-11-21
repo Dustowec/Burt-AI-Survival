@@ -13,6 +13,7 @@ from burt.bestiary import ENEMIES, Enemy
 
 class TestEnemyList:
     EXPECTED = {
+        "young_goblin",
         "goblin", "goblin_shaman", "wolf", "boar",
         "bandit", "bear", "dragon",
         "guard", "cleric", "necromancer",
@@ -31,6 +32,26 @@ class TestEnemyList:
 
 
 # ─── Цифры §21 ─────────────────────────────────────────────
+
+class TestYoungGoblin:
+    """Tutorial monster: only level-1 spawns, 3 HP, 0-1 fists."""
+
+    def test_hp(self):
+        assert ENEMIES["young_goblin"].hp_max == 3
+
+    def test_damage(self):
+        e = ENEMIES["young_goblin"]
+        assert (e.damage_min, e.damage_max) == (0, 1)
+
+    def test_weapon(self):
+        assert ENEMIES["young_goblin"].weapon == "fists"
+
+    def test_no_spell(self):
+        e = ENEMIES["young_goblin"]
+        assert e.spell_damage_min is None
+        assert e.spell_damage_max is None
+        assert e.spell_cost is None
+
 
 class TestGoblin:
     def test_hp(self):

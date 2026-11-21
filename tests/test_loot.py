@@ -207,3 +207,13 @@ class TestLootDropShape:
             assert "count" in item
             assert isinstance(item["count"], int)
             assert item["count"] > 0
+
+
+# ─── young_goblin — tutorial monster, no loot table ────────
+
+class TestYoungGoblinLoot:
+    @pytest.mark.parametrize("roll", [1, 2, 3, 4, 5, 6])
+    def test_no_loot(self, roll):
+        drop = roll_loot("young_goblin", roll)
+        assert drop.items == []
+        assert drop.coins == 0

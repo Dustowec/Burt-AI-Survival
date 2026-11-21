@@ -38,11 +38,14 @@ import pytest
 
 from burt.spawn import (
     PACK_ENEMIES,
+    YOUNG_GOBLIN_KEY,
     possible_enemies,
     roll_enemy_type,
     roll_pack_size,
     spawn_random,
     spawn_ambush,
+    spawn_for_level,
+    ambush_for_level,
     is_pack,
 )
 
@@ -297,4 +300,85 @@ class TestValidation:
         assert roll_enemy_type("swimming_pool", 1) is None
 
     def test_unknown_location_possible_enemies_empty(self):
+        assert possible_enemies("swimming_pool") == frozenset()
+
+
+# ─── Tutorial gate: only young_goblin at level < 2 ──────────
+
+class TestYoungGoblinSpawnGate:
+    NON_EMPTY = ["forest", "dungeon", "field", "steppe", "swamp"]
+    EMPTY = ["river", "road", "village", "temple"]
+
+    def test_key(self):
+        assert YOUNG_GOBLIN_KEY == "young_goblin"
+
+    @pytest.mark.parametrize("location", NON_EMPTY)
+    @pytest.mark.parametrize("roll", [1, 2, 3, 4, 5, 6])
+    def test_level_one_only_young_goblin(self, location, roll):
+        assert spawn_for_level(location, 1, roll, roll) == [
+            YOUNG_GOBLIN_KEY
+        ]
+
+    @pytest.mark.parametrize("location", EMPTY)
+    @pytest.mark.parametrize("roll", [1, 2, 3, 4, 5, 6])
+    def test_level_one_empty_locations_stay_empty(self, location, roll):
+        assert spawn_for_level(location, 1, roll, roll) == []
+
+    def test_level_one_unknown_location_stays_empty(self):
+        assert spawn_for_level("swimming_pool", 1, 1, 1) == []
+
+    @pytest.mark.parametrize("location", NON_EMPTY)
+    @pytest.mark.parametrize("level", [2, 3, 5, 10])
+    @pytest.mark.parametrize("roll", [1, 2, 3, 4, 5, 6])
+    def test_level_two_plus_never_young_goblin(self, location, level, roll):
+        result = spawn_for_level(location, level, roll, roll)
+        assert YOUNG_GOBLIN_KEY not in result
+
+    def test_level_two_restores_old_table(self):
+        assert spawn_for_level("forest", 2, 1, 1) == ["goblin_shaman"]
+        assert spawn_for_level("dungeon", 2, 1, 1) == ["dragon"]
+        assert spawn_for_level("field", 2, 1, 1) == ["boar"]
+        assert spawn_for_level("swamp", 2, 6, 6) == ["goblin"]
+
+    def test_level_one_ambush_is_one_young_goblin(self):
+        for roll_type in (1, 3, 4, 6):
+            for roll_size in (1, 3, 6):
+                assert ambush_for_level(1, roll_type, roll_size) == [
+                    YOUNG_GOBLIN_KEY
+                ]
+
+    def test_level_two_ambush_restores_old_table(self):
+        assert ambush_for_level(2, 1, 1) == ["wolf", "wolf", "wolf"]
+        assert ambush_for_level(2, 6, 6) == ["goblin"]
+
+    @pytest.mark.parametrize("level", [2, 5, 10])
+    def test_level_two_plus_ambush_never_young_goblin(self, level):
+        for roll_type in (1, 2, 3, 4, 5, 6):
+            for roll_size in (1, 2, 3, 4, 5, 6):
+                assert YOUNG_GOBLIN_KEY not in ambush_for_level(
+                    level, roll_type, roll_size,
+                )
+
+    def test_young_goblin_is_not_a_pack(self):
+        assert is_pack(YOUNG_GOBLIN_KEY) is False
+        assert roll_pack_size(YOUNG_GOBLIN_KEY, 1) == 1
+
+    @pytest.mark.parametrize("location", NON_EMPTY + EMPTY)
+    def test_not_in_possible_enemies(self, location):
+        assert YOUNG_GOBLIN_KEY not in possible_enemies(location)
+
+    @pytest.mark.parametrize("bad_roll", [0, 7, -1])
+    def test_spawn_for_level_validates_rolls(self, bad_roll):
+        with pytest.raises(ValueError):
+            spawn_for_level("forest", 1, bad_roll, 1)
+        with pytest.raises(ValueError):
+            spawn_for_level("forest", 1, 1, bad_roll)
+
+    @pytest.mark.parametrize("bad_roll", [0, 7, -1])
+    def test_ambush_for_level_validates_rolls(self, bad_roll):
+        with pytest.raises(ValueError):
+            ambush_for_level(1, bad_roll, 1)
+        with pytest.raises(ValueError):
+            ambush_for_level(1, 1, bad_roll)
+
         assert possible_enemies("swimming_pool") == frozenset()

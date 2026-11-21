@@ -43,6 +43,12 @@ from typing import Optional
 
 PACK_ENEMIES: frozenset[str] = frozenset({"goblin", "wolf"})
 
+# Tutorial gate: at level < 2 the only wild monster is young_goblin.
+# It is deliberately NOT in _ENCOUNTER_TABLE, PACK_ENEMIES or loot:
+# the level-aware helpers below are the only way it can spawn.
+YOUNG_GOBLIN_KEY: str = "young_goblin"
+YOUNG_LEVEL: int = 2
+
 _ENCOUNTER_TABLE: dict[str, dict[int, str]] = {
     "forest": {
         1: "goblin_shaman",
@@ -166,6 +172,27 @@ def spawn_random(
     return [enemy_key] * size
 
 
+# ─── Tutorial gate: level-aware wrappers ───────────────────
+
+def spawn_for_level(
+    location: str,
+    level: int,
+    roll_type: int,
+    roll_size: int,
+) -> list[str]:
+    """Wild spawn for a given Burt level.
+
+    At level < 2 every non-empty location yields exactly one young_goblin;
+    at level >= 2 the normal table is used, so young_goblin can never
+    appear outside the tutorial. Empty/unknown locations stay empty.
+    """
+    _validate_roll(roll_type, "roll_type")
+    _validate_roll(roll_size, "roll_size")
+    if level < YOUNG_LEVEL and location in _ENCOUNTER_TABLE:
+        return [YOUNG_GOBLIN_KEY]
+    return spawn_random(location, roll_type, roll_size)
+
+
 # ─── Засада ────────────────────────────────────────────────
 
 def spawn_ambush(roll_type: int, roll_size: int) -> list[str]:
@@ -184,3 +211,20 @@ def spawn_ambush(roll_type: int, roll_size: int) -> list[str]:
     enemy_key = "wolf" if roll_type <= 3 else "goblin"
     size = roll_pack_size(enemy_key, roll_size)
     return [enemy_key] * size
+
+
+def ambush_for_level(
+    level: int,
+    roll_type: int,
+    roll_size: int,
+) -> list[str]:
+    """Thicket ambush for a given Burt level.
+
+    At level < 2 the ambush is exactly one young_goblin; at level >= 2
+    the normal wolf/goblin ambush table is used.
+    """
+    _validate_roll(roll_type, "roll_type")
+    _validate_roll(roll_size, "roll_size")
+    if level < YOUNG_LEVEL:
+        return [YOUNG_GOBLIN_KEY]
+    return spawn_ambush(roll_type, roll_size)
