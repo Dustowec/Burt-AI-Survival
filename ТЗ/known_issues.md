@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ bd64999 + working tree` · Verified: 20.11.2026 · Tests: 2457 passed
+Spec: v0.7.0 · Code: `main @ 323f0d6 + working tree` · Verified: 21.11.2026 · Tests: 2463 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -358,7 +358,9 @@ Logging flags are live now (`DEBUG`, `LOG_LEVEL`, `LOG_DIR`, `CRASH_DIR`,
 `LOG_ROTATE_HOURS`, `RING_BUFFER_SIZE`, `GAME_SESSION_PATH`, `LOG_PREVIEW_CHARS`,
 `LOG_QUEUE_MAXSIZE`, `LOG_FSYNC`).
 
-Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`, `DAY_STEPS`.
+Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`.
+(`DAY_STEPS` *is* read: `state.validate_state` enforces the maximum and
+`main.run_turn` clamps the step while a step-20 fight is ongoing.)
 
 
 ### 22. Role key mismatch — PARTIAL
@@ -402,6 +404,14 @@ notes.
 - **TZ-10:** cap spawn at level < 5 — done and committed (`a32d64e`); now dynamic, level really reaches 5+ (#5).
 - **Combat:** free strike on opening, loot after victory, cast in combat, block counters, dragon breath, shaman MP -> staff — done.
 - **Death / resurrection:** 1d6, 2 HP, new life with memory transfer — done.
+- **Day rollover after a resurrection (P0, 21.11.2026):** forced sleep fires at
+  step >= 20 (the transitional 20->21 tick after an action), the step is clamped
+  while a step-20 fight is ongoing, and `state.json` is written *after* the
+  resurrection / new life instead of before it. Resurrection mercy is one per
+  day (the flag is now read). The live log `Gemma 4-E4B(log_of_life_x4)_3.txt`
+  (step 20 + combat + death + roll 6) no longer produces
+  `ValueError: step (N) > maximum (20)`. Epitaphs are written only on a final
+  death (roll != 6). Regression: `tests/test_resurrection_day_end.py`.
 - **Diary / epitaph / memory summary (10+ lives):** wired to the LLM.
 - **`npc.py` dialogue engine:** categories, dice pairs, bonuses, anger lock, bribe, training, heretic deception — implemented; the remaining gap is spawn (#2).
 - **Trade (§35):** shop sub-mode, three-modifier prices, tavern room, loot selling, trophy staff road — done (#4).
@@ -438,7 +448,7 @@ notes.
 | 🟡 Medium | 3 (was 5; sleep availability and dialogue-as-one-action closed) |
 | 🟢 Low | 8 |
 | ⚪ Intentional deviations | 8 |
-| ✅ Closed | 11 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #13 sleep, #14 dialogue) |
+| ✅ Closed | 12 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #13 sleep, #14 dialogue, day rollover/resurrection) |
 | **Total open** | **13** |
 
 ---

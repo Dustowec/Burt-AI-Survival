@@ -83,6 +83,9 @@ class TurnResult:
     result_direction_moved: str | None = None
     end_state: dict | None = None
     error: str | None = None
+    # new_bug §6: set by run_turn on death, consumed by game_loop when the
+    # resurrection roll fails. The epitaph is written only for a final death.
+    death_cause: str | None = None
 
 # ---------------------------------------------------------------------
 # State helpers
@@ -411,14 +414,17 @@ async def run_turn(
                 hidden.get("day", 1),
                 visible.get("location", {}).get("name", "Unknown"),
             )
-            await _write_epitaph(state, "diarrhea", epitaphs_dir)
             if game_session:
                 game_session.append_special(
                     day=day,
                     event="death",
                     description="Burt died from diarrhea (DoT)",
                 )
-            return TurnResult(game_over=True, history=history)
+            # new_bug §6: the epitaph is written by game_loop only when
+            # the resurrection roll fails (roll != 6).
+            _sync_meta_from_hidden(state)
+            return TurnResult(game_over=True, history=history,
+                              death_cause="diarrhea")
 
     # -- 1. Sensory report ----------------------------------------
     report = sensory.format_sensory_report(visible)
@@ -607,10 +613,11 @@ async def run_turn(
 
     # -- 8. Game over? --------------------------------------------
     if result.game_over:
+        death_cause = _determine_death_cause(state, action)
         _log_death(state, action)
-        await _write_epitaph(
-            state, _determine_death_cause(state, action), epitaphs_dir,
-        )
+        # new_bug §6: the epitaph belongs to a FINAL death; game_loop
+        # writes it only when the resurrection roll fails (roll != 6).
+        _sync_meta_from_hidden(state)
         if game_session:
             game_session.append_turn(
                 day=day,
@@ -627,7 +634,7 @@ async def run_turn(
                 game_over=True,
             )
         if plugin is not None:
-            plugin.event(LEVEL_INFO, "death", {"cause": _determine_death_cause(state, action)})
+            plugin.event(LEVEL_INFO, "death", {"cause": death_cause})
             plugin.event(LEVEL_INFO, "turn_complete", {
                 "game_over": True, "hp": visible.get("hp", 0),
             })
@@ -636,7 +643,8 @@ async def run_turn(
                          llm_prompt=llm_prompt, llm_response=answer,
                          action_key=action.key, action_label=action.label,
                          result_events=result.events, result_game_over=True,
-                         result_new_hp=visible.get("hp"), end_state=state)
+                         result_new_hp=visible.get("hp"), end_state=state,
+                         death_cause=death_cause)
 
     # -- 9. Post-turn: hunger death check -------------------------
     death_outcome = _check_hunger_death(state)
@@ -648,7 +656,8 @@ async def run_turn(
             visible.get("hp", 0),
             visible.get("location", {}).get("name", "Unknown")
         )
-        await _write_epitaph(state, "hunger", epitaphs_dir)
+        # new_bug §6: the epitaph is written by game_loop only when
+        # the resurrection roll fails (roll != 6).
         if game_session:
             game_session.append_special(
                 day=day,
@@ -657,22 +666,34 @@ async def run_turn(
             )
         if plugin is not None:
             plugin.event(LEVEL_INFO, "death", {"cause": "hunger"})
+        _sync_meta_from_hidden(state)
         return TurnResult(game_over=True, history=history,
                          start_state=state, sensory_report=report,
                          llm_prompt=llm_prompt, llm_response=answer,
                          action_key=action.key, action_label=action.label,
                          result_events=result.events, result_game_over=True,
-                         result_new_hp=visible.get("hp"), end_state=state)
+                         result_new_hp=visible.get("hp"), end_state=state,
+                         death_cause="hunger")
 
     # -- 10. Forced sleep on step 20 ------------------------------
     step_now = hidden.get("step", 0)
     chose_sleep = action.key in ("sleep", "write_diary_and_go_sleep")
     if sleep_mod.is_forced_sleep(step_now, chose_sleep):
         if hidden.get("current_mode") != "combat":
-            logger.info("Forced sleep (step 20)")
+            logger.info("Forced sleep (step %d)", step_now)
             _do_sleep(state)
         else:
             logger.info("Forced sleep blocked (in combat, step %d)", step_now)
+            # Invariant: a state on disk never has step > DAY_STEPS.
+            # The tick that pushed the counter past the day was the
+            # combat entry; the day wraps on the turn the fight ends.
+            if step_now > state_mod.DAY_STEPS:
+                hidden["step"] = state_mod.DAY_STEPS
+                logger.warning(
+                    "Step clamped to %d while in combat; "
+                    "the day wraps after the fight",
+                    state_mod.DAY_STEPS,
+                )
 
     # -- 11. Daily expiry -----------------------------------------
     quests.expire_blockades(state)
@@ -794,19 +815,21 @@ async def game_loop(
         if dry_run:
             break
 
-        try:
-            state_io.save_state(state_path, state)
-        except Exception:
-            logger.exception("Failed to save state")
-
         if game_over:
-            # Воскрешение: 1d6 -> решение
-            outcome = resurrection.check_resurrection(rng)
+            hidden = state.setdefault("hidden", {})
+            # Resurrection mercy is one per day (§4, hunger.py).
+            if hidden.get("resurrection_used_today", False):
+                logger.info(
+                    "Death after a resurrection today - final death, no roll",
+                )
+                outcome = resurrection.ResurrectionOutcome.FAILED
+            else:
+                outcome = resurrection.check_resurrection(rng)
+                logger.info("Resurrection roll -> %s", outcome)
 
             if outcome == resurrection.ResurrectionOutcome.SUCCESS:
                 # Бурт воскресает в том же мире
                 visible = state.setdefault("visible", {})
-                hidden = state.setdefault("hidden", {})
                 visible["hp"] = resurrection.RESURRECTION_HP
                 visible["hp_max"] = max(
                     resurrection.RESURRECTION_HP,
@@ -828,36 +851,52 @@ async def game_loop(
                     plugin.event(LEVEL_INFO, "resurrection", {
                         "hp": resurrection.RESURRECTION_HP,
                     })
-                # game_over=False → продолжаем цикл
-                continue
+            else:
+                # Если FAILED — пишем эпитафию и создаём новую жизнь.
+                # new_bug §6: только окончательная смерть (roll != 6).
+                old_memory = state["meta"].get("memory")
+                old_life = state["meta"]["life"]
+                try:
+                    await _write_epitaph(
+                        state,
+                        turn_result.death_cause or "unknown",
+                        epitaphs_dir,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to write epitaph; new life without memory"
+                    )
+                new_life = old_life + 1
 
-            # Если FAILED — пишем эпитафию и создаём новую жизнь
-            old_memory = state["meta"].get("memory")
-            old_life = state["meta"]["life"]
-            new_life = old_life + 1
+                # Пишем память в новую жизнь из epitaphs
+                new_state = make_new_state(
+                    life=new_life,
+                    epitaphs_dir=epitaphs_dir,
+                )
+                _sync_hidden_from_meta(new_state)
+                _ensure_runtime_fields(new_state)
+                # new_bug §0: replace the state in place so the caller's
+                # reference and the final save always see the current life.
+                state.clear()
+                state.update(new_state)
+                history = []  # <-- wipe LLM context between lives (bug fix)
 
-            # Пишем память в новую жизнь из epitaphs
-            new_state = make_new_state(
-                life=new_life,
-                epitaphs_dir=epitaphs_dir,
-            )
-            _sync_hidden_from_meta(new_state)
-            _ensure_runtime_fields(new_state)
-            # new_bug §0: replace the state in place so the caller's
-            # reference and the final save always see the current life.
-            state.clear()
-            state.update(new_state)
-            history = []  # <-- wipe LLM context between lives (bug fix)
+                # Проверяем memory_summary при жизни >= 10
+                if state["meta"].get("life", 1) >= 10 and epitaphs_dir is not None:
+                    await _write_memory_summary(state, epitaphs_dir)
 
-            # Проверяем memory_summary при жизни >= 10
-            if state["meta"].get("life", 1) >= 10 and epitaphs_dir is not None:
-                await _write_memory_summary(state, epitaphs_dir)
+                logger.info(
+                    "Game over (life %d) → new life %d started (memory=%s)",
+                    old_life, new_life, "yes" if old_memory else "no",
+                )
 
-            logger.info(
-                "Game over (life %d) → new life %d started (memory=%s)",
-                old_life, new_life, "yes" if old_memory else "no",
-            )
-            continue
+        # Save the CURRENT life (after resurrection or a new life), so a
+        # Ctrl+C / crash right here never leaves a dead state on disk.
+        _sync_meta_from_hidden(state)
+        try:
+            state_io.save_state(state_path, state)
+        except Exception:
+            logger.exception("Failed to save state")
 
     logger.info("Loop finished after %d turns", step_count)
     return state

@@ -118,6 +118,13 @@ class TestIsForcedSleep:
     def test_step_20_chose_sleep_not_forced(self):
         assert is_forced_sleep(20, chose_sleep=True) is False
 
+    def test_step_21_after_the_tick_still_forced(self):
+        # The step-20 turn ticks 20->21 after its action; the day ends there.
+        assert is_forced_sleep(21, chose_sleep=False) is True
+
+    def test_step_21_chose_sleep_not_forced(self):
+        assert is_forced_sleep(21, chose_sleep=True) is False
+
     @pytest.mark.parametrize("step", [0, 5, 10, 15, 19])
     def test_before_20_not_forced(self, step):
         assert is_forced_sleep(step, chose_sleep=False) is False

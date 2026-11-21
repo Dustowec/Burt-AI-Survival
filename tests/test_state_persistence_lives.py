@@ -35,7 +35,8 @@ class TestGameLoopReturnsLastLife:
              patch(
                  "main.resurrection.check_resurrection",
                  return_value=res_mod.ResurrectionOutcome.FAILED,
-             ):
+             ), \
+             patch("main._write_epitaph", new=AsyncMock()):
             returned = await main.game_loop(
                 state, [], max_steps=2, dry_run=False,
                 state_path=state_path, epitaphs_dir=tmp_path,

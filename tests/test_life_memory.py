@@ -9,9 +9,10 @@
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 
 from burt.state import create_initial_state
+import main
 from main import make_new_state
 
 
@@ -217,18 +218,23 @@ class TestGameLoopAutoRestart:
             mock_non_go.history = []
             return mock_non_go
 
-        with patch("main.run_turn", mock_run_turn):
-            with patch("main.state_io.save_state"):
-                asyncio_run = __import__("asyncio").run
-                asyncio_run(
-                    game_loop(
-                        state,
-                        [],
-                        max_steps=100,
-                        dry_run=False,  # dry_run breaks after first turn
-                        state_path=MagicMock(),
-                    )
+        with patch("main.run_turn", mock_run_turn), \
+             patch("main.state_io.save_state"), \
+             patch("main._write_epitaph", new=AsyncMock()), \
+             patch(
+                 "main.resurrection.check_resurrection",
+                 return_value=main.resurrection.ResurrectionOutcome.FAILED,
+             ):
+            asyncio_run = __import__("asyncio").run
+            asyncio_run(
+                game_loop(
+                    state,
+                    [],
+                    max_steps=100,
+                    dry_run=False,  # dry_run breaks after first turn
+                    state_path=MagicMock(),
                 )
+            )
 
         # game_loop should have called run_turn at least twice (1st → game_over, 2nd → continue)
         assert call_count[0] >= 2, "game_loop should have called run_turn at least twice"

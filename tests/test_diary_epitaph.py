@@ -250,7 +250,8 @@ class TestRunTurnHistoryReset:
 
 
 class TestRunTurnEpitaph:
-    def test_epitaph_on_game_over(self):
+    def test_no_epitaph_in_run_turn(self):
+        """new_bug §6: the epitaph belongs to game_loop (roll != 6 only)."""
         st = _state(day=3)
         fake = ActionResult(events=["You died."], game_over=True)
         with patch.object(
@@ -261,10 +262,13 @@ class TestRunTurnEpitaph:
         ), patch.object(
             main, "_write_epitaph", new=AsyncMock(),
         ) as mock_ep:
-            asyncio.run(main.run_turn(st, [], rng=lambda: 4, dry_run=False))
-        assert mock_ep.called
+            result = asyncio.run(main.run_turn(st, [], rng=lambda: 4, dry_run=False))
+        assert not mock_ep.called
+        assert result.death_cause is not None
+        # The death path still syncs meta.step for the save after the roll.
+        assert st["meta"]["step"] == st["hidden"]["step"]
 
-    def test_epitaph_on_final_hunger_death(self):
+    def test_no_epitaph_on_final_hunger_death(self):
         st = _state(day=3, step=18)
         st["visible"]["eat"] = False
         fake = ActionResult(events=["ok"], game_over=False)
@@ -278,8 +282,9 @@ class TestRunTurnEpitaph:
         ), patch.object(
             main, "_write_epitaph", new=AsyncMock(),
         ) as mock_ep:
-            asyncio.run(main.run_turn(st, [], rng=lambda: 1, dry_run=False))
-        assert mock_ep.called
+            result = asyncio.run(main.run_turn(st, [], rng=lambda: 1, dry_run=False))
+        assert not mock_ep.called
+        assert result.death_cause == "hunger"
 
     def test_no_epitaph_on_resurrection(self):
         st = _state(day=3, step=18)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -82,6 +82,7 @@ class TestHistoryWipedAfterFailedResurrection:
                      return_value="failed",
                  ), \
                  patch("main.state_io.save_state"), \
+                 patch("main._write_epitaph", new=AsyncMock()), \
                  patch(
                      "main.make_new_state",
                      return_value=_mk_state(life=2),
