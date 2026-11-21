@@ -563,6 +563,7 @@ def resolve_free_strike(
     combat: CombatState,
     burt: BurtStats,
     rng: Rng,
+    opening_text: str = "Ambush!",
 ) -> RoundResult:
     """Step 0 of combat: enemy free strike on ambush (§23).
 
@@ -576,6 +577,10 @@ def resolve_free_strike(
     Idempotent — a no-op when initiative is Burt's or the free strike
     is already done, so calling it twice cannot deal damage twice.
     Consumes exactly the same rng rolls as the old inline free strike.
+
+    opening_text is the first LLM event. Monsters keep the default
+    "Ambush!"; the NPC orchestrator passes "The guard attacks!" and
+    similar lines (§34).
     """
     events_llm: list[str] = []
     events_tech: list[str] = []
@@ -583,7 +588,7 @@ def resolve_free_strike(
     if not combat.active or combat.free_strike_done:
         return RoundResult(combat=combat, burt=burt, outcome="ongoing")
 
-    events_llm.append("Ambush!")
+    events_llm.append(opening_text)
     for enemy in _alive(combat):
         if burt.hp <= 0:
             break
@@ -613,15 +618,17 @@ def open_combat(
     initiative: str,
     burt: BurtStats,
     rng: Rng,
+    opening_text: str = "Ambush!",
 ) -> RoundResult:
     """start_combat() + free strike in one call.
 
     Convenience entry point for the orchestrator: emit "[COMBAT]", then
     result.events_llm, then handle result.outcome ("burt_died" means the
     ambush killed Burt and no menu must be shown), then inject the menu.
+    opening_text is forwarded to resolve_free_strike().
     """
     combat = start_combat(enemy_keys, initiative)
-    return resolve_free_strike(combat, burt, rng)
+    return resolve_free_strike(combat, burt, rng, opening_text)
 
 
 # ─── Round ─────────────────────────────────────────────────

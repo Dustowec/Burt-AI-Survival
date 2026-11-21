@@ -113,4 +113,43 @@ ENEMIES: dict[str, Enemy] = {
         breath_max=3,
         tags=frozenset({"no_flee"}),
     ),
+    # §32/§34: fighting residents. The guard's numbers are not in the
+    # spec; the cleric's are (HP 25, MP 50, light 5-8, staff 1-3).
+    # The necromancer mirrors the cleric (dark magic is mechanically
+    # identical to light in combat.py).
+    "guard": Enemy(
+        key="guard",
+        name="guard",
+        hp_max=15,
+        damage_min=2,
+        damage_max=4,
+        weapon="sword",
+        tags=frozenset({"npc"}),
+    ),
+    "cleric": Enemy(
+        key="cleric",
+        name="cleric",
+        hp_max=25,
+        damage_min=1,
+        damage_max=3,
+        weapon="staff",
+        mp_max=50,
+        spell_damage_min=5,
+        spell_damage_max=8,
+        spell_cost=1,
+        tags=frozenset({"npc"}),
+    ),
+    "necromancer": Enemy(
+        key="necromancer",
+        name="necromancer",
+        hp_max=25,
+        damage_min=1,
+        damage_max=3,
+        weapon="staff",
+        mp_max=50,
+        spell_damage_min=5,
+        spell_damage_max=8,
+        spell_cost=1,
+        tags=frozenset({"npc"}),
+    ),
 }

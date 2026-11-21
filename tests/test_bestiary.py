@@ -15,6 +15,7 @@ class TestEnemyList:
     EXPECTED = {
         "goblin", "goblin_shaman", "wolf", "boar",
         "bandit", "bear", "dragon",
+        "guard", "cleric", "necromancer",
     }
 
     def test_all_enemies_present(self):
@@ -139,4 +140,67 @@ class TestDragon:
         assert ENEMIES["dragon"].breath_max == 3
 
     def test_no_flee_tag(self):
+        assert "no_flee" in ENEMIES["dragon"].tags
+
+
+class TestGuard:
+    def test_hp(self):
+        assert ENEMIES["guard"].hp_max == 15
+
+    def test_damage(self):
+        e = ENEMIES["guard"]
+        assert (e.damage_min, e.damage_max) == (2, 4)
+
+    def test_weapon(self):
+        assert ENEMIES["guard"].weapon == "sword"
+
+    def test_npc_tag(self):
+        assert "npc" in ENEMIES["guard"].tags
+
+
+class TestCleric:
+    def test_hp(self):
+        assert ENEMIES["cleric"].hp_max == 25
+
+    def test_mp(self):
+        assert ENEMIES["cleric"].mp_max == 50
+
+    def test_staff_damage(self):
+        e = ENEMIES["cleric"]
+        assert (e.damage_min, e.damage_max) == (1, 3)
+
+    def test_light_beam(self):
+        e = ENEMIES["cleric"]
+        assert (e.spell_damage_min, e.spell_damage_max) == (5, 8)
+        assert e.spell_cost == 1
+
+    def test_weapon(self):
+        assert ENEMIES["cleric"].weapon == "staff"
+
+    def test_npc_tag(self):
+        assert "npc" in ENEMIES["cleric"].tags
+
+
+class TestNecromancer:
+    def test_hp(self):
+        assert ENEMIES["necromancer"].hp_max == 25
+
+    def test_mp(self):
+        assert ENEMIES["necromancer"].mp_max == 50
+
+    def test_staff_damage(self):
+        e = ENEMIES["necromancer"]
+        assert (e.damage_min, e.damage_max) == (1, 3)
+
+    def test_dark_magic(self):
+        e = ENEMIES["necromancer"]
+        assert (e.spell_damage_min, e.spell_damage_max) == (5, 8)
+        assert e.spell_cost == 1
+
+    def test_weapon(self):
+        assert ENEMIES["necromancer"].weapon == "staff"
+
+    def test_npc_tag(self):
+        assert "npc" in ENEMIES["necromancer"].tags
+
         assert "no_flee" in ENEMIES["dragon"].tags

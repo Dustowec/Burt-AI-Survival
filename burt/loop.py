@@ -29,6 +29,7 @@ from burt import combat
 from burt import npc_spawn
 from burt import quests
 from burt import faith
+from burt import npc_combat
 from burt import reputation
 from burt import loot
 from burt import search as search_mod
@@ -156,10 +157,16 @@ def build_menu(visible: dict, state: dict, *,
     # ── Talk actions (§32): NPCs of this node, next to exits and search.
     talk_actions: list[Action] = []
     if dialogue_engine is not None:
-        killer = faith.is_killer(state)
         for role_key in hidden.get("npcs_here", []):
-            # §34: residents stop talking after the crime.
-            if killer and faith.cannot_talk_after_crime(role_key):
+            # §34: a hostile resident is approached, not talked to; the
+            # first approach starts combat (enemy initiative).
+            if npc_combat.is_hostile(state, role_key):
+                talk_actions.append(Action(
+                    key=f"talk_to_{role_key}",
+                    label=f"Approach the {role_key}",
+                ))
+                continue
+            if not faith.can_talk_to(state, role_key):
                 continue
             talk_actions.append(
                 Action(key=f"talk_to_{role_key}",
@@ -1109,6 +1116,7 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
         report = sensory.format_combat_report(result.combat, result.burt)
         events.append(report)
     else:
+        npc_role = hidden.get("combat_npc_role")
         hidden["combat"] = None
         hidden["current_mode"] = "exploring"
         dead_enemies = [e for e in result.combat.enemies if not e.alive]
@@ -1158,10 +1166,35 @@ def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
                     events.append(
                         f"Quest ready to report: {_quest_title(quest_id)}."
                     )
+            # §34: killing a resident in combat is the same crime as
+            # dialog_attack. The dead enemy must match the stored role.
+            if (npc_role and npc_combat.is_npc_enemy(npc_role)
+                    and any(e.key == npc_role and not e.alive
+                            for e in result.combat.enemies)):
+                _apply_npc_combat_crime(npc_role, state, events)
         if result.outcome == "burt_died":
             action_result.game_over = True
+        if npc_role is not None:
+            hidden["combat_npc_role"] = None
 
     return action_result
+
+
+def _apply_npc_combat_crime(
+    role_key: str,
+    state: dict,
+    events: list[str],
+) -> None:
+    """§34: a resident killed in combat runs the full crime pipeline."""
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    summary = faith.on_resident_killed(role_key, role_key, state)
+    npc_spawn.remove_npc(
+        hidden, hidden.get("current_node_id", "start"), role_key,
+    )
+    if summary["failed_quests"]:
+        events.append("Your open work is lost.")
+    events.append(sensory.format_sensory_report(visible))
 
 
 def _award_combat_xp(
@@ -1253,31 +1286,23 @@ def error_result(msg: str) -> ActionResult:
 
 def _execute_talk_to(action: Action, state: dict, role_key: str,
                      engine: DialogueEngine, rng) -> ActionResult:
-    """Enter dialog mode with the given NPC role."""
+    """Meet an NPC: a hostile resident fights, the rest talk (§34)."""
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
+
+    # §34: guard / cleric / necromancer attack instead of talking.
+    if npc_combat.is_hostile(state, role_key):
+        started = _start_npc_fight(role_key, state, rng)
+        return ActionResult(
+            events=started.events, game_over=started.game_over,
+        )
+
+    # §34: residents have no dialogue after a crime. The necromancer is
+    # the only exception (the killer may still take K3 from him).
+    if not faith.can_talk_to(state, role_key):
+        return error_result(f"the {role_key} will not talk to you")
+
     rep_role = _rep_role(role_key)
-
-    # §34: god's wrath is served at the first meeting with the cleric.
-    punishment_event = None
-    if role_key == "cleric":
-        damage = faith.take_punishment(state)
-        if damage > 0:
-            visible["hp"] = max(0, visible.get("hp", 0) - damage)
-            hidden["hp_raw"] = visible["hp"]
-            punishment_event = (
-                f"The gods demand a price. You take {damage} damage."
-            )
-            if visible["hp"] <= 0:
-                hidden["death_cause_override"] = "god_wrath"
-                return ActionResult(
-                    events=[
-                        punishment_event,
-                        sensory.format_sensory_report(visible),
-                    ],
-                    game_over=True,
-                )
-
     hidden["current_mode"] = "dialog"
     hidden["dialog_state"] = {
         "role_key": role_key,
@@ -1303,14 +1328,10 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
     # one action and only dialog_exit advances the step.
     hidden["last_action"] = action.key
     hidden["same_action_count"] = 1
-    events = []
-    if punishment_event is not None:
-        events.append(punishment_event)
-    events.extend([
+    return ActionResult(events=[
         f"You approach the {role_key}.",
         sensory.format_sensory_report(visible),
     ])
-    return ActionResult(events=events)
 
 
 def _finish_dialog(state: dict) -> ActionResult:
@@ -1352,7 +1373,7 @@ def _execute_dialog_action(action: Action, state: dict, rng,
 
     # §33/§34: faith actions are handled before the generic topics.
     if action.key == "dialog_attack":
-        return _execute_kill_resident(state)
+        return _execute_kill_resident(state, rng)
     if action.key == "dialog_donate":
         return _execute_donate(state)
 
@@ -1414,7 +1435,7 @@ def _execute_dialog_action(action: Action, state: dict, rng,
     return result
 
 
-def _execute_kill_resident(state: dict) -> ActionResult:
+def _execute_kill_resident(state: dict, rng) -> ActionResult:
     """§34: a single hostile act kills a resident (no combat rounds)."""
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
@@ -1440,6 +1461,14 @@ def _execute_kill_resident(state: dict) -> ActionResult:
     if summary["failed_quests"]:
         events.append("Your open work is lost.")
     events.append(sensory.format_sensory_report(visible))
+
+    # §34: the murder wakes any hostile resident still standing here;
+    # children and peasants run away on the spot.
+    events.extend(_remove_fleeing_residents(hidden, node_id))
+    started = _start_npc_hostility_if_any(state, rng)
+    if started is not None:
+        events.extend(started.events)
+        return ActionResult(events=events, game_over=started.game_over)
     return ActionResult(events=events)
 
 
@@ -1976,6 +2005,7 @@ def _start_combat(
     hidden: dict,
     visible: dict,
     rng,
+    opening_text: str = "Ambush!",
 ) -> CombatStart:
     """Start combat (§23) and resolve the ambush free strike right here.
 
@@ -1993,7 +2023,9 @@ def _start_combat(
     burt = _build_burt_stats(visible, hidden)
 
     # §23 step 0: enemy initiative -> free strike, no block allowed.
-    opening = combat.resolve_free_strike(combat_state, burt, rng)
+    opening = combat.resolve_free_strike(
+        combat_state, burt, rng, opening_text,
+    )
     combat_state = opening.combat
     burt = opening.burt
 
@@ -2020,6 +2052,78 @@ def _start_combat(
     return CombatStart(
         events=_combat_opening_events(report, opening.events_llm),
     )
+
+
+def _remove_fleeing_residents(hidden: dict, node_id: str) -> list[str]:
+    """§34: children and peasants run away from a killer."""
+    events: list[str] = []
+    for role_key in list(hidden.get("npcs_here") or []):
+        if role_key in faith.FLEE_ROLES:
+            npc_spawn.remove_npc(hidden, node_id, role_key)
+            events.append(f"The {role_key} runs away.")
+    return events
+
+
+def _start_npc_fight(role_key: str, state: dict, rng) -> CombatStart:
+    """§34: a hostile resident attacks.
+
+    The cleric serves the queued god's wrath first (once, paladin ->
+    killer). If the punishment kills Burt, no combat is started.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    events: list[str] = []
+
+    if role_key == "cleric":
+        damage = faith.take_punishment(state)
+        if damage > 0:
+            visible["hp"] = max(0, visible.get("hp", 0) - int(damage))
+            hidden["hp_raw"] = visible["hp"]
+            events.append(
+                f"The gods demand a price. You take {damage} damage."
+            )
+            if visible["hp"] <= 0:
+                hidden["death_cause_override"] = "god_wrath"
+                hidden["combat"] = None
+                hidden["combat_npc_role"] = None
+                hidden["current_mode"] = "exploring"
+                hidden["dialog_state"] = None
+                events.append(sensory.format_sensory_report(visible))
+                return CombatStart(events=events, game_over=True)
+
+    enemy = npc_combat.enemy_key(role_key)
+    if enemy is None:
+        return CombatStart(events=events)
+
+    started = _start_combat(
+        [enemy], "enemy", hidden, visible, rng,
+        opening_text=f"The {role_key} attacks!",
+    )
+    if started.game_over:
+        hidden["combat_npc_role"] = None
+        if hidden.get("death_cause_override") is None:
+            hidden["death_cause_override"] = "combat"
+    else:
+        hidden["combat_npc_role"] = role_key
+    return CombatStart(
+        events=events + list(started.events),
+        game_over=started.game_over,
+    )
+
+
+def _start_npc_hostility_if_any(state: dict, rng) -> CombatStart | None:
+    """§34: start combat with the first hostile resident in this node."""
+    hidden = state.setdefault("hidden", {})
+    if hidden.get("combat") is not None:
+        return None
+    if hidden.get("current_mode") == "combat":
+        return None
+    role_key = npc_combat.hostile_role(
+        list(hidden.get("npcs_here") or []), state,
+    )
+    if role_key is None:
+        return None
+    return _start_npc_fight(role_key, state, rng)
 
 
 def _maybe_start_combat_on_enter(
@@ -2238,11 +2342,16 @@ def _arrive_at_node(
     # Runs last: its dice never shift the movement or NPC spawn order.
     npc_spawn.maybe_add_mage(hidden, loc_type, node_id, rng)
 
+    state = {"hidden": hidden, "visible": visible}
+
     # §34: children and peasants run away from a killer.
-    if faith.is_killer({"hidden": hidden, "visible": visible}):
-        for role in list(hidden.get("npcs_here") or []):
-            if role in faith.FLEE_ROLES:
-                npc_spawn.remove_npc(hidden, node_id, role)
+    if faith.is_killer(state):
+        _remove_fleeing_residents(hidden, node_id)
+
+    # §34: a hostile resident attacks on meeting (arrival). Encounter
+    # combat, if already started above, keeps priority.
+    if started is None:
+        started = _start_npc_hostility_if_any(state, rng)
 
     return loc_type, started
 

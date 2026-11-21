@@ -176,6 +176,7 @@ def create_initial_state(
             "current_mode": "exploring",
             "dialog_state": None,
             "combat": None,
+            "combat_npc_role": None,
             "last_action": None,
             "same_action_count": 0,
             "dice_log_last": [],

@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ 323f0d6 + working tree` · Verified: 21.11.2026 · Tests: 2534 passed
+Spec: v0.7.0 · Code: `main @ 6ddd903 + working tree` · Verified: 21.11.2026 · Tests: 2665 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -259,9 +259,10 @@ Implemented in `burt/reputation.py`, wired through `loop.py`.
 
 **Code:** dialogue and quests never change reputation; no effects are applied anywhere.
 
-### 10. Faith, statuses and crime (§33, §34) — PARTIAL (core done 21.11.2026)
+### 10. Faith, statuses and crime (§33, §34) — DONE — CLOSED 21.11.2026
 
-**Done:** `burt/faith.py` + `state`/`sensory` + `quests`/`loop` wiring.
+**Done:** `burt/faith.py`, `burt/npc_combat.py`, `burt/bestiary.py` +
+`state`/`sensory`/`quests`/`loop` wiring.
 
 - statuses neutral / paladin / heretic / killer (`hidden["faith"]`,
   `visible["faith"]`, `[STATE] -> "Faith: ..."`; neutral hidden);
@@ -282,27 +283,40 @@ Implemented in `burt/reputation.py`, wired through `loop.py`.
   and peasants flee, residents have no dialogue after the crime;
 - god's wrath: `1 * level`, queued by paladin -> killer and served once
   at the first cleric meeting (can kill, cause `god_wrath`);
-- `hostility()` predicates are ready for the NPC-combat task.
+- NPC hostility (§34): `burt/npc_combat.py` selects the fighter;
+  `guard` / `cleric` / `necromancer` are bestiary entries (the cleric
+  has spec HP 25 / MP 50 / light 5-8 / staff 1-3; the guard and the
+  necromancer use the assumptions recorded in `bestiary.py`);
+- a hostile resident attacks on arrival (enemy initiative) and right
+  after a murder in the same node; `Approach the <role>` re-engages
+  after a flee; children / peasants flee on arrival and after a murder;
+- killing a resident in combat runs the same crime pipeline as
+  `dialog_attack`: status, all active quests fail, rep -5 / -10, the
+  quest-giver life block, chain blocks and god's wrath;
+- after a crime only the necromancer stays talkable: a killer may still
+  take K3 from him.
 
-**Still open (next task):**
+**Intentional design note (not a bug):** killer + `heretic_3` is
+unsolvable. The cleric fights a killer on sight, and the "insult the
+cleric" step needs the cleric dialogue. A killer, a heretic-killer and
+a paladin-killer therefore cannot shed the status: murder is an
+execution, not a resettable state. The necromancer still offers K3, so
+the dead end is visible to the player.
 
-- NPC combat / hostility: a guard fights a killer, the cleric fights
-  after the punishment, the necromancer attacks a paladin, the cleric
-  attacks a heretic after the finale;
-- the killed-giver life block only covers role quests; the faith chain
-  givers are blocked through `faith.paladin_chain_blocked` /
-  `heretic_chain_blocked` when the necromancer is killed;
-- "heretic-killer" is stored as `killer` + `killer_from`, the report
-  shows `Faith: killer` (the spec says Burt sees only three statuses).
-
-**Evidence:** `burt/faith.py`, `burt/state.py` (faith fields),
+**Evidence:** `burt/faith.py` (`hostility`, `can_talk_to`,
+`on_resident_killed`, chains), `burt/npc_combat.py`,
+`burt/bestiary.py`, `burt/state.py` (`combat_npc_role`),
 `burt/sensory.py::_format_faith`, `burt/quests.py` (chains, strict
 completion, life block), `burt/loop.py` (`dialog_attack`,
-`dialog_donate`, K2 lie hook, K3 insult hook, chain issuing, flee),
-`quests_templates.json` (pala_1..3 / heretic_1..3 per §33).
+`dialog_donate`, K2 lie hook, K3 insult hook, chain issuing, flee,
+`_start_npc_fight`, `_start_npc_hostility_if_any`,
+`_apply_npc_combat_crime`), `quests_templates.json`
+(pala_1..3 / heretic_1..3 per §33).
 
-**Tests:** `test_faith.py` (51), `test_faith_chain_loop.py` (7),
-`test_faith_crime.py` (8), `test_faith_status_sensory.py` (4).
+**Tests:** `test_faith.py` (55), `test_faith_chain_loop.py` (7),
+`test_faith_crime.py` (8), `test_faith_status_sensory.py` (4),
+`test_npc_combat_core.py` (36), `test_npc_hostility_loop.py` (40),
+`test_bestiary.py` (NPC entries).
 
 ### 11. Random events, preacher and effects do not exist (§10, §13) — NOT IMPLEMENTED
 
@@ -412,11 +426,11 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`.
 
 ### 24. Documentation drift — PARTIAL
 
-README was refreshed in v0.9.0-BETA: version, 2534 tests, HANDOFF-1..24,
-the finished life cycle, the new_bug mechanics and the "Что дальше"
-section now match the code. Remaining drift: the module/test lists in
-README are not exhaustive, and older HANDOFFs keep their historical
-notes.
+README was refreshed in v0.9.1: version, 2665 tests, HANDOFF-1..25,
+the finished life cycle, the new_bug mechanics, NPC hostility and the
+"Что дальше" section now match the code. Remaining drift: the
+module/test lists in README are not exhaustive, and older HANDOFFs keep
+their historical notes.
 
 ---
 

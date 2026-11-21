@@ -373,4 +373,33 @@ class TestHostility:
 
     def test_no_talk_after_crime(self):
         assert faith.cannot_talk_after_crime("peasant") is True
-        assert faith.cannot_talk_after_crime("cleric") is False
+        assert faith.cannot_talk_after_crime("cleric") is True
+        assert faith.cannot_talk_after_crime("necromancer") is False
+        assert faith.cannot_talk_after_crime("mage_event") is False
+
+    def test_can_talk_to_neutral(self):
+        st = make_state()
+        assert faith.can_talk_to(st, "merchant") is True
+        assert faith.can_talk_to(st, "cleric") is True
+        assert faith.can_talk_to(st, "necromancer") is True
+
+    def test_can_talk_to_killer_only_necromancer(self):
+        st = make_state()
+        faith.set_status(st, faith.STATUS_KILLER, faith.STATUS_NEUTRAL)
+        assert faith.can_talk_to(st, "merchant") is False
+        assert faith.can_talk_to(st, "guard") is False
+        assert faith.can_talk_to(st, "cleric") is False
+        assert faith.can_talk_to(st, "necromancer") is True
+        assert faith.can_talk_to(st, "mage_event") is True
+
+    def test_can_talk_to_paladin_necromancer_is_false(self):
+        st = make_state()
+        faith.set_status(st, faith.STATUS_PALADIN)
+        assert faith.can_talk_to(st, "necromancer") is False
+        assert faith.can_talk_to(st, "cleric") is True
+
+    def test_can_talk_to_heretic_cleric_is_false(self):
+        st = make_state()
+        faith.set_status(st, faith.STATUS_HERETIC)
+        assert faith.can_talk_to(st, "cleric") is False
+        assert faith.can_talk_to(st, "necromancer") is True

@@ -72,14 +72,16 @@ class TestMurder:
         st["hidden"]["npcs_here"] = [
             "merchant", "child", "guard", "cleric", "necromancer",
         ]
-        keys = [a.key for a in build_menu(
-            st["visible"], st, dialogue_engine=engine,
-        )]
-        assert "talk_to_merchant" not in keys
-        assert "talk_to_child" not in keys
-        assert "talk_to_guard" not in keys
-        assert "talk_to_cleric" in keys
-        assert "talk_to_necromancer" in keys
+        actions = {
+            a.key: a.label for a in build_menu(
+                st["visible"], st, dialogue_engine=engine,
+            )
+        }
+        assert "talk_to_merchant" not in actions
+        assert "talk_to_child" not in actions
+        assert actions.get("talk_to_guard") == "Approach the guard"
+        assert actions.get("talk_to_cleric") == "Approach the cleric"
+        assert actions.get("talk_to_necromancer") == "Talk to necromancer"
 
     def test_quest_giver_blocked_for_life(self):
         st = make_state()
@@ -99,10 +101,12 @@ class TestPunishment:
         faith.set_status(st, faith.STATUS_PALADIN)
         faith.on_resident_killed("peasant", "peasant", st)
 
-        result = open_dialog(st, "cleric", engine)
+        result = open_dialog(st, "cleric", engine, _rng(1))
 
         assert st["visible"]["hp"] == 5
         assert st["hidden"]["faith"]["punishment_pending"] is False
+        assert st["hidden"]["current_mode"] == "combat"
+        assert st["hidden"]["combat_npc_role"] == "cleric"
         assert any(
             "gods demand a price" in event.lower()
             for event in result.events
@@ -133,9 +137,9 @@ class TestFlee:
         graph = {"n1": {"type": "village", "entered": True, "exits": {}}}
         st["hidden"]["location_graph"] = graph
         st["hidden"]["npcs_by_node"] = {
-            "n1": ["child", "elder", "cleric"],
+            "n1": ["child", "elder"],
         }
-        st["hidden"]["npcs_here"] = ["child", "elder", "cleric"]
+        st["hidden"]["npcs_here"] = ["child", "elder"]
 
         _loc, started = _arrive_at_node(
             "n1", graph, st["hidden"], st["visible"], _rng(4),

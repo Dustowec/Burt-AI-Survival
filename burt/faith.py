@@ -21,8 +21,8 @@ wrath (1 * level, applied at the first cleric meeting) and blocks the
 paladin chain.
 
 NPC hostility (guard fight, cleric punishment + fight, necromancer
-against a paladin) is exported as a predicate for the next task; NPC
-combat itself is not part of this module.
+against a paladin, cleric against a heretic) is exported as a predicate
+and a dialogue gate. NPC combat itself lives in npc_combat / loop.
 """
 from __future__ import annotations
 
@@ -90,10 +90,11 @@ FLEE_ROLES: frozenset[str] = frozenset({
     "child", "peasant", "peasant_woman",
 })
 
-# Transitional until NPC hostility lands: the chain givers stay talkable.
-NO_TALK_AFTER_CRIME: frozenset[str] = RESIDENT_ROLES - {
-    "cleric", "necromancer",
-}
+# After a crime residents have no dialogue. The necromancer is the only
+# exception: a killer may still take K3 from him. The cleric step of that
+# chain stays unreachable on purpose -- the cleric fights the killer on
+# sight, so the killer status is an execution, not a resettable state.
+NO_TALK_AFTER_CRIME: frozenset[str] = RESIDENT_ROLES - {"necromancer"}
 
 # Roles that hand out quests: 7 role-quest givers + the two chain givers.
 QUEST_GIVERS: frozenset[str] = frozenset({
@@ -472,7 +473,26 @@ def is_killer(state: dict) -> bool:
 def cannot_talk_after_crime(role_key: str) -> bool:
     """§34: residents stop talking after the crime.
 
-    The chain givers stay talkable until NPC hostility lands (transitional).
+    Status-free check: the caller already knows it is dealing with a
+    killer. The necromancer is the only resident left out (K3 giver).
     """
     return role_key in NO_TALK_AFTER_CRIME
+
+
+def can_talk_to(state: dict, role_key: str) -> bool:
+    """§34: may Burt open a dialogue with this role right now?
+
+    - a hostile resident is handled by combat, not dialogue;
+    - non-residents (mage_event / preacher_event) stay talkable;
+    - after a crime only the necromancer remains talkable: a killer can
+      still take K3 from him (the cleric step is intentionally blocked
+      because the cleric fights the killer on sight).
+    """
+    if hostility(get_status(state), role_key) == "fight":
+        return False
+    if role_key not in RESIDENT_ROLES:
+        return True
+    if get_status(state) == STATUS_KILLER:
+        return role_key == "necromancer"
+    return True
 
