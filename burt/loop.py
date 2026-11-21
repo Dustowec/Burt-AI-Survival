@@ -41,6 +41,7 @@ from burt import weapons
 from burt import skills
 from burt import magic
 from burt import state as state_mod
+from burt import events
 from burt.combat import CombatState, BurtStats
 from burt.bestiary import ENEMIES
 from burt.dice import (
@@ -68,6 +69,8 @@ class ActionResult:
     game_over: bool = False
     search_result: str | None = None
     direction_moved: str | None = None
+    # §13: the preacher dialogue is one action; its effect starts after it.
+    skip_effect_tick: bool = False
 
 
 @dataclass
@@ -108,6 +111,19 @@ _ENCOUNTER_LOCATIONS = {
 _AMBUSH_LOCATION = "thicket"  # §32: ambush at thicket
 _COMBAT_HEADER = "[COMBAT]"  # first line of sensory.format_combat_report
 
+# §26: free tools. A tool never advances the day counter.
+TOOL_KEYS: frozenset[str] = frozenset({
+    "scroll", "inventory", "status", "remember", "diary",
+})
+
+_TOOL_LABELS: dict[str, str] = {
+    "scroll": "Quest scroll",
+    "inventory": "Inventory",
+    "status": "Status",
+    "remember": "Remember",
+    "diary": "Diary",
+}
+
 # new_bug §3: blessing text depends on the REAL delta.
 BLESSING_RESTORES = "A blessing restores your vitality."
 BLESSING_WASHES = "A blessing washes over you."
@@ -139,7 +155,25 @@ _ACTION_SYNONYMS = {
     "eat_food": ["eat", "consume bread", "take the bread", "munch"],
     "drink_water": ["drink", "take water"],
     "sleep": ["sleep", "rest", "close my eyes"],
+    "inventory": ["inventory", "check inventory", "my things",
+                  "my belongings", "what do i carry"],
+    "status": ["status", "check my state", "how do i feel",
+               "check myself"],
+    "remember": ["remember", "memory", "recall", "past life"],
+    "diary": ["diary", "journal", "last entry", "my notes"],
 }
+
+
+def _append_tools(
+    actions: list[Action],
+    keys: tuple[str, ...] = ("scroll", "inventory", "status",
+                             "remember", "diary"),
+) -> list[Action]:
+    """§26: free tools go at the end, so old menu indices stay stable."""
+    for key in keys:
+        actions.append(Action(key=key, label=_TOOL_LABELS[key],
+                              cost_free=True))
+    return actions
 
 
 def build_menu(visible: dict, state: dict, *,
@@ -227,7 +261,9 @@ def build_menu(visible: dict, state: dict, *,
         actions.append(Action(key="drink_water", label="Drink water"))
 
     actions.extend(talk_actions)
-    return actions
+    return _append_tools(
+        actions, ("inventory", "status", "remember", "diary"),
+    )
 
 
 def _build_dialog_menu(visible: dict, state: dict,
@@ -262,7 +298,7 @@ def _build_dialog_menu(visible: dict, state: dict,
         actions.append(Action(key="dialog_donate", label="Donate all coin"))
     if role_key in faith.RESIDENT_ROLES:
         actions.append(Action(key="dialog_attack", label="Attack (kill)"))
-    return actions
+    return _append_tools(actions)
 
 
 def _rep_role(role_key: str) -> str:
@@ -357,7 +393,7 @@ def _build_combat_menu(visible: dict, state: dict) -> list[Action]:
         burt = _build_burt_stats(visible, hidden)
         if burt.spells_available:
             actions.append(Action(key="cast", label="Cast"))
-    return actions
+    return _append_tools(actions)
 
 
 def _build_encounter_menu(hidden: dict) -> list[Action]:
@@ -477,14 +513,10 @@ def _execute_go_away(
             hp_max=visible.get("hp_max", 10),
             mp_max=visible.get("mp_max", 3),
         )
-        text = _apply_movement_event(ev, visible, hidden)
-        if text:
-            events_list = [sensory.format_sensory_report(visible)]
-            events_list.insert(0, text)
-            return ActionResult(
-                events=events_list,
-                direction_moved=direction,
-            )
+        return ActionResult(
+            events=_apply_positive_movement_event(ev, visible, hidden, rng),
+            direction_moved=direction,
+        )
 
     return ActionResult(
         events=[sensory.format_sensory_report(visible)],
@@ -646,6 +678,24 @@ def _apply_movement_event(ev, visible: dict, hidden: dict) -> str:
     return ev.description
 
 
+def _apply_positive_movement_event(ev, visible: dict, hidden: dict,
+                                   rng) -> list[str]:
+    """Apply a §10 positive event, then roll the rare preacher spawn.
+
+    Order matters: the preacher roll is the LAST die of the movement, so
+    the existing dice order (movement, arrival, encounter, spawn, magic,
+    blessing restore) is untouched.
+    """
+    result: list[str] = []
+    text = _apply_movement_event(ev, visible, hidden)
+    if text:
+        result.append(text)
+    if events.spawn_preacher(hidden, rng):
+        result.append(events.PREACHER_ENCOUNTER_TEXT)
+    result.append(sensory.format_sensory_report(visible))
+    return result
+
+
 def _apply_sleep_state(state: dict) -> None:
     """One night: voluntary and forced sleep share this exact effect set.
 
@@ -662,8 +712,17 @@ def _apply_sleep_state(state: dict) -> None:
     visible["hp"] = new_hp
     visible["mp"] = new_mp
     visible["effects"] = new_effects
+    hidden["effects_detail"] = []
     hidden["hp_raw"] = new_hp
     hidden["mp_raw"] = new_mp
+
+    # §13: a preacher does not survive the night either.
+    if events.PREACHER_KEY in (hidden.get("npcs_here") or []):
+        npc_spawn.remove_npc(
+            hidden, hidden.get("current_node_id", "start"),
+            events.PREACHER_KEY,
+        )
+        events.mark_preacher_used(hidden)
 
     eat, res_used = hunger.reset_hunger_after_sleep()
     visible["eat"] = eat
@@ -697,8 +756,50 @@ def _apply_bonus_effects(bonus: dict, visible: dict) -> None:
         economy.add_item(visible, "bread")
 
 
-def execute_action(action: Action, state: dict, rng=None,
-                   dialogue_engine: DialogueEngine | None = None) -> ActionResult:
+def format_inventory(state: dict) -> str:
+    """§26 inventory tool: the full item list."""
+    return sensory.format_inventory(state.get("visible", {}))
+
+
+def format_status(state: dict) -> str:
+    """§26 status tool: HP/MP, hunger, sleep, effects (no duration)."""
+    return sensory.format_status(state.get("visible", {}))
+
+
+def format_memory(state: dict) -> str:
+    """§26 remember tool: the last memory record of a past life."""
+    meta = state.get("meta", {})
+    memory = meta.get("memory") or meta.get("memory_summary")
+    body = memory if memory else "You remember nothing."
+    return "[MEMORY]\n" + body
+
+
+def format_diary(state: dict) -> str:
+    """§26 diary tool: the last diary entry."""
+    diary = state.get("hidden", {}).get("diary")
+    body = diary if diary else "You have no diary entry."
+    return "[DIARY]\n" + body
+
+
+def _execute_tool(action: Action, state: dict) -> ActionResult | None:
+    """§26: free tools. Return None for a normal (non-tool) action."""
+    key = action.key
+    if key not in TOOL_KEYS:
+        return None
+    if key == "scroll":
+        return ActionResult(events=[format_scroll(state)])
+    if key == "inventory":
+        return ActionResult(events=[format_inventory(state)])
+    if key == "status":
+        return ActionResult(events=[format_status(state)])
+    if key == "remember":
+        return ActionResult(events=[format_memory(state)])
+    return ActionResult(events=[format_diary(state)])
+
+
+def _execute_action_impl(action: Action, state: dict, rng=None,
+                         dialogue_engine: DialogueEngine | None = None,
+                         ) -> ActionResult:
     """Execute an action and mutate state. Delegates to sub-modules.
 
     rng is a callable returning 1..6 (dice roll). Defaults to dice.roll_d6.
@@ -708,6 +809,11 @@ def execute_action(action: Action, state: dict, rng=None,
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
     mode = hidden.get("current_mode", "exploring")
+
+    # ---- §26: free tools (any mode, no step tick) ----
+    tool_result = _execute_tool(action, state)
+    if tool_result is not None:
+        return tool_result
 
     # ---- dialog mode routing ----
     if mode == "dialog":
@@ -906,21 +1012,16 @@ def execute_action(action: Action, state: dict, rng=None,
                 hp_max=visible.get("hp_max", 10),
                 mp_max=visible.get("mp_max", 3),
             )
-            text = _apply_movement_event(ev, visible, hidden)
-            if text:
-                events_list = [sensory.format_sensory_report(visible)]
-                events_list.insert(0, text)
-                return ActionResult(
-                    events=events_list,
-                    direction_moved=direction,
-                )
+            return ActionResult(
+                events=_apply_positive_movement_event(
+                    ev, visible, hidden, rng,
+                ),
+                direction_moved=direction,
+            )
         return ActionResult(
             events=[sensory.format_sensory_report(visible)],
             direction_moved=direction,
         )
-
-    if action.key == "scroll":
-        return ActionResult(events=[format_scroll(state)])
 
     if action.key == "search":
         loc_type = _current_location_type(hidden)
@@ -1041,6 +1142,39 @@ def execute_action(action: Action, state: dict, rng=None,
         return _execute_combat(action, state, rng)
 
     return error_result(f"Unknown action: {action.key}")
+
+
+def execute_action(action: Action, state: dict, rng=None,
+                   dialogue_engine: DialogueEngine | None = None,
+                   ) -> ActionResult:
+    """Public entry: run the action, then spend one effect action if due.
+
+    §13: curse/blessing lasts 3 actions. A real action is either a
+    step-advancing action or one combat round (combat freezes the day
+    counter). Free tools and dialogue replies do not tick the effects.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    step_before = hidden.get("step", 0)
+    mode_before = hidden.get("current_mode", "exploring")
+
+    result = _execute_action_impl(action, state, rng, dialogue_engine)
+
+    if result.events and result.events[0].startswith("Error:"):
+        return result
+    if result.skip_effect_tick:
+        return result
+    if action.key in TOOL_KEYS:
+        return result
+
+    if hidden.get("step", 0) > step_before:
+        events.tick(hidden, visible)
+    elif mode_before == "combat" and (
+        action.key.startswith("attack_")
+        or action.key in ("block", "flee", "cast")
+    ):
+        events.tick(hidden, visible)
+    return result
 
 
 def _execute_combat(action: Action, state: dict, rng) -> ActionResult:
@@ -1229,6 +1363,7 @@ def _build_burt_stats(visible: dict, hidden: dict) -> BurtStats:
     weapon_level = int(levels.get(choice.skill, 0)) if choice.skill else 0
     magic_level = int(levels.get("Magic", 0))
     cast_min, cast_max = weapons.magic_damage_range(magic_level)
+    event_mod = events.modifier(hidden)
 
     return BurtStats(
         hp=visible["hp"],
@@ -1238,13 +1373,13 @@ def _build_burt_stats(visible: dict, hidden: dict) -> BurtStats:
         damage_min=choice.damage_min,
         damage_max=choice.damage_max,
         master=weapon_level,
-        modifier=skills.modifier(weapon_level),
+        modifier=skills.modifier(weapon_level) + event_mod,
         spells_available=spells_available,
         weapon=choice.key,
         cast_damage_min=cast_min,
         cast_damage_max=cast_max,
         cast_master=magic_level,
-        cast_modifier=skills.modifier(magic_level),
+        cast_modifier=skills.modifier(magic_level) + event_mod,
     )
 
 
@@ -1302,6 +1437,32 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
     if not faith.can_talk_to(state, role_key):
         return error_result(f"the {role_key} will not talk to you")
 
+    # §13: the preacher is an event, not a role. He has one intro and
+    # one dice reply; no reputation, no quests, no training.
+    if role_key == events.PREACHER_KEY:
+        hidden["current_mode"] = "dialog"
+        hidden["dialog_state"] = {
+            "role_key": role_key,
+            "rep_role": None,
+            "shop_role": None,
+            "shop": None,
+            "train_asked": False,
+            "is_angry": False,
+            "turn": 0,
+            "anger_lock_until": None,
+            "bonus_used": False,
+            "quest_state": "none",
+            "rep_applied": True,
+            "preacher_done": False,
+        }
+        hidden["last_action"] = action.key
+        hidden["same_action_count"] = 1
+        intro = (engine.event_line(role_key, "intro")
+                 or "The preacher greets you.")
+        return ActionResult(events=[
+            intro, sensory.format_sensory_report(visible),
+        ])
+
     rep_role = _rep_role(role_key)
     hidden["current_mode"] = "dialog"
     hidden["dialog_state"] = {
@@ -1342,15 +1503,75 @@ def _finish_dialog(state: dict) -> ActionResult:
     """
     hidden = state.setdefault("hidden", {})
     visible = state.setdefault("visible", {})
+    role_key = (hidden.get("dialog_state") or {}).get("role_key")
     hidden["current_mode"] = "exploring"
     hidden["dialog_state"] = None
     hidden["step"] = hidden.get("step", 0) + 1
     # §16: the next talk may change reputation again.
     reputation.reset_dialog_rep(state)
+    # §13: after the dialogue the preacher disappears and is forgotten.
+    skip_tick = False
+    if role_key == events.PREACHER_KEY:
+        npc_spawn.remove_npc(
+            hidden, hidden.get("current_node_id", "start"),
+            events.PREACHER_KEY,
+        )
+        events.mark_preacher_used(hidden)
+        # The effect starts after this one-action dialogue.
+        skip_tick = True
     return ActionResult(
         events=["You leave the conversation.",
-                sensory.format_sensory_report(visible)]
+                sensory.format_sensory_report(visible)],
+        skip_effect_tick=skip_tick,
     )
+
+
+def _execute_preacher_reply(
+    action: Action,
+    state: dict,
+    rng,
+    engine: DialogueEngine | None,
+) -> ActionResult:
+    """§13: one d6 for the whole dialogue with the preacher.
+
+    1 -> curse, 2-5 -> nothing, 6 -> blessing; the effect lasts 3
+    actions. The reply is free: the whole dialogue is one action and
+    only dialog_exit ticks. The preacher never touches reputation.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    ds = hidden.get("dialog_state") or {}
+
+    if not action.key.startswith("dialog_"):
+        return error_result(f"unknown dialog action: {action.key}")
+    category = action.key[len("dialog_"):]
+    if engine is not None:
+        allowed = engine.available_categories(events.PREACHER_KEY)
+        if category not in allowed:
+            return error_result(
+                f"the preacher does not answer {category!r}"
+            )
+
+    if ds.get("preacher_done"):
+        return ActionResult(events=[
+            "The preacher has nothing more to say.",
+            sensory.format_sensory_report(visible),
+        ])
+
+    roll = rng()
+    kind = events.resolve_preacher(roll)
+    text = ""
+    if engine is not None:
+        text = engine.event_line(events.PREACHER_KEY, kind)
+
+    effect = events.effect_for(kind)
+    if effect is not None:
+        events.apply_effect(hidden, visible, effect)
+
+    ds["preacher_done"] = True
+    result_events = [text] if text else []
+    result_events.append(sensory.format_sensory_report(visible))
+    return ActionResult(events=result_events)
 
 
 def _execute_dialog_action(action: Action, state: dict, rng,
@@ -1370,6 +1591,10 @@ def _execute_dialog_action(action: Action, state: dict, rng,
         if is_angry and (lock_until is None or turn < lock_until):
             return error_result("cannot leave while angry")
         return _finish_dialog(state)
+
+    # §13: the preacher's one dice reply (curse / nothing / blessing).
+    if ds.get("role_key") == events.PREACHER_KEY:
+        return _execute_preacher_reply(action, state, rng, engine)
 
     # §33/§34: faith actions are handled before the generic topics.
     if action.key == "dialog_attack":
@@ -1878,7 +2103,10 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
     # Restore quest_state
     session.quest_state = ds.get("quest_state", "available")
 
-    result = session.say(cat, roll=roll, second_roll=second_roll)
+    result = session.say(
+        cat, roll=roll, second_roll=second_roll,
+        modifier=events.modifier(hidden),
+    )
 
     # Apply result back to state
     visible["hp"] = session.hp
@@ -1904,15 +2132,15 @@ def execute_dialog(action: Action, state: dict, engine: DialogueEngine, rng,
         delta = reputation.dialogue_delta(result.outcome, result.became_angry)
         reputation.apply_dialog_rep(state, rep_role, delta)
 
-    events = [result.text]
+    result_events = [result.text]
     if result.bonus is not None:
         _apply_bonus_effects(result.bonus, visible)
         text = bonus_text(result.bonus)
         if text:
-            events.append(text)
-    events.append(sensory.format_sensory_report(visible))
+            result_events.append(text)
+    result_events.append(sensory.format_sensory_report(visible))
 
-    return ActionResult(events=events)
+    return ActionResult(events=result_events)
 
 
 def _enter_new_node(graph: dict, node_id: str, rng) -> None:

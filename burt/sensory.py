@@ -23,7 +23,12 @@ from burt import faith
 from burt import progression
 from burt.state import canonical_date
 
-__all__ = ["format_sensory_report", "format_combat_report"]
+__all__ = [
+    "format_sensory_report",
+    "format_combat_report",
+    "format_inventory",
+    "format_status",
+]
 
 
 # ---------------------------------------------------------------------
@@ -163,8 +168,9 @@ def _format_location(visible: dict) -> str:
 # [HANDS]
 # ---------------------------------------------------------------------
 
-def _format_inventory(visible: dict) -> str:
-    lines = ["[HANDS]"]
+def format_inventory(visible: dict, header: str = "[INVENTORY]") -> str:
+    """§26: full item list for the inventory tool."""
+    lines = [header]
     items = visible.get("inventory") or []
 
     if not items:
@@ -175,6 +181,27 @@ def _format_inventory(visible: dict) -> str:
             lines.append(f"{name} — {it['count']}pcs")
 
     return "\n".join(lines)
+
+
+def format_status(visible: dict) -> str:
+    """§26: HP/MP, hunger, sleep and effects without duration."""
+    lines = ["[STATUS]"]
+    lines.append(_format_hp_mp(visible))
+    lines.append(_format_hunger_sleep(visible))
+
+    counter = visible.get("sleep_counter", 0)
+    if not isinstance(counter, int) or isinstance(counter, bool) or counter < 0:
+        counter = 0
+    counter = min(counter, config.DAY_STEPS)
+    lines.append(f"Sleep: {counter}/{config.DAY_STEPS}")
+
+    effects = _format_effects(visible.get("effects") or [])
+    lines.append(effects if effects is not None else "Effects: none")
+    return "\n".join(lines)
+
+
+def _format_inventory(visible: dict) -> str:
+    return format_inventory(visible, "[HANDS]")
 
 
 def _capitalize_first(s: str) -> str:

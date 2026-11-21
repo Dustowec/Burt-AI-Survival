@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ 6ddd903 + working tree` · Verified: 21.11.2026 · Tests: 2665 passed
+Spec: v0.7.0 · Code: `main @ v0.9.2-BETA` · Verified: 21.11.2026 · Tests: 2769 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -318,28 +318,63 @@ completion, life block), `burt/loop.py` (`dialog_attack`,
 `test_npc_combat_core.py` (36), `test_npc_hostility_loop.py` (40),
 `test_bestiary.py` (NPC entries).
 
-### 11. Random events, preacher and effects do not exist (§10, §13) — NOT IMPLEMENTED
+### 11. Random events, preacher and effects (§10, §13) — DONE — CLOSED 21.11.2026
 
-**Evidence:** `state.py:139` (`events_here`), `state.py:147` (`pending_events`) — never read or written by any module.
+**Done:** `burt/events.py` + `loop` / `sensory` / `main` wiring.
 
-**Spec requires:** random events on travel (bad / nothing / good), preacher event with curse/blessing for 3 turns, mage event once per life, temple/dungeon rare spawns.
+- preacher dice table (§13): `1 -> curse`, `2-5 -> nothing`,
+  `6 -> blessing`; text from `replicas.json -> events.preacher_event`;
+- the preacher is an event, not a role: he joins `hidden["npcs_here"]`
+  only, never `hidden["npcs_by_node"]`; `hidden["events_here"]` gets
+  `{"type": "preacher", "used": false}`; he is neutral to every faith
+  status and disappears after `dialog_exit` (or sleep);
+- spawn: the positive travel event (movement roll 5-6) rolls a separate
+  d6 (§10 table: 5-6 good); the roll is the LAST die of the movement, so
+  the existing dice order is untouched;
+- effects: `hidden["effects_detail"]` = `{type, modifier, turns_left}`,
+  `visible["effects"]` carries only the types; curse = -1, blessing = +1;
+  both last exactly 3 actions (step-advancing actions and combat rounds;
+  free tools and dialogue replies do not tick); sleep clears them;
+- modifier is wired into `BurtStats.modifier` / `cast_modifier` and into
+  `Session.say(..., modifier=...)` (dialogue pairs shift, §12);
+- sensory report shows `Effects: blessed|cursed` without duration/numbers;
+- tests: `test_events.py` (42), `test_preacher_loop.py` (26).
 
-**Code:** no event spawner; `blessed` / `cursed` are never granted; `hidden.effects_detail` is never used; `BurtStats.modifier` now carries the weapon-skill bonus (§8), but no event/curse/blessing modifies it yet.
+**Evidence:** `burt/events.py`, `burt/loop.py` (`_apply_positive_movement_event`,
+`_execute_preacher_reply`, `execute_action` tick), `burt/sensory.py`,
+`main.py` (`events.ensure_state` / `sync_visible`).
 
 ---
 
 ## 🟡 MEDIUM — format and behaviour drift
 
-### 12. Tools menu is missing (§26) — PARTIAL
+### 12. Full tools menu (§26) — DONE — CLOSED 21.11.2026
 
-**Evidence:** `loop.py:157` — the only free tool is `osmotret` (look around).
+**Done:** `loop.TOOL_KEYS` = `scroll / inventory / status / remember /
+diary`, all `cost_free=True`.
 
-**Spec requires:** free tools — look around (once per turn, not in combat), scroll, inventory, status, remember, diary; tools must be available in dialog and combat menus too.
+- offered in exploring (scroll already was, the other four appended at
+  the end), in dialog (normal topics + exit + tools) and in combat
+  (attack / block / flee / cast + tools);
+- NOT offered in a micro-location (only back/forward, §26) and NOT in
+  the revealed-encounter menu (only attack_* / go_away_to_*);
+- handlers run before dialog/combat routing: a tool never advances the
+  step, never changes mode/HP/wallet/combat;
+- output: `[SCROLL]`, `[INVENTORY]` (`Name — Npcs` / `empty`),
+  `[STATUS]` (HP/MP, Fed, `Sleep: N/20`, `Effects: ...` without
+  duration), `[MEMORY]`, `[DIARY]`;
+- `osmotret` is not offered in combat; its legacy semantics are kept;
+- ReAct delivery: `main.run_turn` stores the tool text in
+  `hidden["pending_tool_output"]` and prepends it to the next prompt,
+  then clears it (the step is still not incremented);
+- `CHOICE` re-ask (new_bug §8) is unchanged: `loop.parse_choice_strict`
+  + one retry with `loop.INVALID_CHOICE_KICK`, then
+  `loop.fallback_action` (block → osmotret → dialog_exit → first item);
+- tests: `test_tools_menu.py` (33), `test_tools_prompt.py` (3).
 
-**Also:** "re-ask once when `CHOICE` is missing" is now implemented:
-`loop.parse_choice_strict` + one retry with `loop.INVALID_CHOICE_KICK` in
-`main.run_turn`, then `loop.fallback_action` (block → osmotret →
-dialog_exit → first item), new_bug §8.
+**Evidence:** `burt/loop.py` (`TOOL_KEYS`, `_append_tools`, `_execute_tool`,
+`format_inventory/status/memory/diary`), `burt/sensory.py`
+(`format_inventory`, `format_status`), `main.py` (`pending_tool_output`).
 
 ### 13. Sleep availability honours bedroll / tavern room — DONE (§5) — CLOSED 20.11.2026
 
@@ -497,11 +532,11 @@ their historical notes.
 |---|---|
 | 🔴 Critical | 0 (was 4; logging, NPC spawn, role quests, trade closed) |
 | 🟠 High | 2 (was 7; reputation, magic, XP, skills and the weapon table closed) |
-| 🟡 Medium | 3 (was 5; sleep availability and dialogue-as-one-action closed) |
+| 🟡 Medium | 2 (was 5; sleep, dialogue-as-one-action and the tools menu closed) |
 | 🟢 Low | 8 |
 | ⚪ Intentional deviations | 8 |
-| ✅ Closed | 12 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #13 sleep, #14 dialogue, day rollover/resurrection) |
-| **Total open** | **13** |
+| ✅ Closed | 14 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #11 events/preacher, #12 tools menu, #13 sleep, #14 dialogue, day rollover/resurrection) |
+| **Total open** | **11** |
 
 ---
 
@@ -509,10 +544,13 @@ their historical notes.
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe tests/ -q     # 2457 passed
+.\.venv\Scripts\pytest.exe -q            # 2769 passed (full: tests/ + root test_npc_integration.py)
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5
 ```
+
+No live LLM run was made for the §10/§13 and §26 changes; the contract
+is covered by unit/integration tests only.
 
 

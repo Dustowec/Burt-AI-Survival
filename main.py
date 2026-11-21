@@ -27,6 +27,7 @@ import config
 from burt import (
     dice,
     epitaphs as epitaphs_mod,
+    events,
     faith,
     hunger,
     loop,
@@ -128,6 +129,8 @@ def _ensure_runtime_fields(state: dict) -> None:
     hidden.setdefault("dot_effects", [])
     hidden.setdefault("pending_encounter", None)
     hidden.setdefault("encounter_revealed", False)
+    # §26: tool text is delivered to the next prompt once.
+    hidden.setdefault("pending_tool_output", None)
     # §35 economy: price modifiers and the paid room of tonight.
     hidden.setdefault("has_room_tonight", False)
     hidden.setdefault("prices_by_node", {})
@@ -146,6 +149,9 @@ def _ensure_runtime_fields(state: dict) -> None:
     skills.ensure_state(hidden, visible)
     # §33: faith statuses and chain counters (old saves get neutral).
     faith.ensure_runtime(state)
+    # §13: repair curse/blessing records and mirror them into visible.
+    events.ensure_state(hidden)
+    events.sync_visible(hidden, visible)
 
 
 # ---------------------------------------------------------------------
@@ -440,6 +446,11 @@ async def run_turn(
     if hp_lost > 0:
         report = f"You take {hp_lost} damage from poison.\n\n" + report
 
+    # -- 1a. §26: the previous free tool result (ReAct observation) --
+    pending_tool = hidden.pop("pending_tool_output", None)
+    if pending_tool:
+        report = f"{pending_tool}\n\n{report}"
+
     # -- 1b. Diary / punishment injection on new day --------------
     if hidden.get("injected_day", 0) != hidden.get("day", 1):
         if hidden.get("diary_skipped_today", False):
@@ -599,6 +610,12 @@ async def run_turn(
 
     result = loop.execute_action(action, state, rng=rng,
                                  dialogue_engine=dialogue_engine)
+
+    # §26: a free tool ends the turn but its text goes to the next prompt.
+    if (action.key in loop.TOOL_KEYS
+            and not (result.events
+                     and result.events[0].startswith("Error:"))):
+        hidden["pending_tool_output"] = "\n".join(result.events) or None
 
     if plugin is not None:
         plugin.tool(

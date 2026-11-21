@@ -161,6 +161,16 @@ class DialogueEngine:
 
         return cats
 
+    def event_line(self, role_key: str, pool: str) -> str:
+        """Pick one line from events.<role_key>.<pool> ('' when absent).
+
+        Used by the preacher event, whose pools are not dialogue topics:
+        intro / curse / nothing / blessing.
+        """
+        data = self._replicas.get("events", {}).get(role_key, {})
+        lines = data.get(pool) or []
+        return random.choice(lines) if lines else ""
+
     def start(self, role_key: str, *,
               hp: int = 10, coins: int = 100,
               reputation_bonus: int = 0) -> "Session":
