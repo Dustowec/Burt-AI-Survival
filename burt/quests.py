@@ -45,6 +45,7 @@ class Quest:
     deadline_day: int | None = None
     chain: str | None = None
     chain_step: int | None = None
+    tag: str = ""
     target: str | None = None   # §36: enemy key / location / role
 
 
@@ -85,6 +86,7 @@ def _dict_to_quest(d: dict) -> Quest:
         chain=d.get("chain"),
         chain_step=d.get("chain_step"),
         target=d.get("target"),
+        tag=d.get("tag", ""),
     )
 
 
@@ -104,7 +106,37 @@ def _quest_to_dict(q: Quest) -> dict:
         "chain": q.chain,
         "chain_step": q.chain_step,
         "target": q.target,
+        "tag": q.tag,
     }
+
+
+def _next_tag(hidden: dict) -> str:
+    """Short journal tag of a new quest: Q1, Q2, ... (never reused).
+
+    The counter lives in hidden["quest_counter"] and resets with the
+    world (a new life starts a new journal).
+    """
+    counter = int(hidden.get("quest_counter", 0) or 0) + 1
+    hidden["quest_counter"] = counter
+    return f"Q{counter}"
+
+
+def ensure_tags(hidden: dict) -> None:
+    """Give tags to quests of old saves (no tag field yet).
+
+    Order of quests_raw is the order they were taken, so the numbers stay
+    chronological. Idempotent; never lowers the counter.
+    """
+    entries = hidden.get("quests_raw")
+    if not isinstance(entries, list):
+        entries = []
+    counter = int(hidden.get("quest_counter", 0) or 0)
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("tag"):
+            continue
+        counter += 1
+        entry["tag"] = f"Q{counter}"
+    hidden["quest_counter"] = counter
 
 
 def _find_active_deceive(state: dict) -> Quest | None:
@@ -142,6 +174,7 @@ def _advance_chain(q: Quest, state: dict) -> None:
     if next_id not in templates:
         return
     tpl = templates[next_id]
+    hidden = state.setdefault("hidden", {})
     new_q = Quest(
         id=tpl["id"],
         giver_role=q.giver_role,
@@ -157,8 +190,8 @@ def _advance_chain(q: Quest, state: dict) -> None:
         chain=tpl.get("chain"),
         chain_step=tpl.get("step"),
         target=tpl.get("target"),
+        tag=_next_tag(hidden),
     )
-    hidden = state.setdefault("hidden", {})
     hidden.setdefault("quests_raw", []).append(_quest_to_dict(new_q))
 
 
@@ -451,6 +484,7 @@ def quest_give(quest_id: str, role: str, state: dict,
         chain=tpl.get("chain"),
         chain_step=tpl.get("step"),
         target=tpl.get("target"),
+        tag=_next_tag(hidden),
     )
 
     if not force:

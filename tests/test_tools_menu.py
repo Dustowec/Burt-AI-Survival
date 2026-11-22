@@ -18,7 +18,9 @@ from burt.loop import (
 from burt.npc import DialogueEngine, load_replicas
 
 
-TOOLS = ("scroll", "inventory", "status", "remember", "diary")
+TOOLS = ("scroll", "inventory", "status", "remember", "diary", "map")
+# The map is for travelling: not offered in a fight or a talk.
+TOOLS_NO_MAP = tuple(k for k in TOOLS if k != "map")
 ROLES = ("merchant", "guard", "peasant", "peasant_woman", "elder",
          "tavernkeeper", "blacksmith", "fisherman", "child", "veteran",
          "cleric", "necromancer", "mage")
@@ -110,8 +112,9 @@ class TestMenuPresence:
         execute_action(Action("talk_to_merchant", "Talk"), st,
                        rng=_rng_seq(4), dialogue_engine=engine)
         actions = menu_map(st, engine)
-        for key in TOOLS:
+        for key in TOOLS_NO_MAP:
             assert key in actions, key
+        assert "map" not in actions
         assert "eat_food" not in actions
 
     def test_combat_has_all_tools(self):
@@ -121,9 +124,10 @@ class TestMenuPresence:
         st["hidden"]["combat"] = cs.to_dict()
         st["hidden"]["current_mode"] = "combat"
         actions = menu_map(st)
-        for key in TOOLS:
+        for key in TOOLS_NO_MAP:
             assert key in actions, key
             assert actions[key].cost_free is True, key
+        assert "map" not in actions
         assert "osmotret" not in actions
 
     def test_micro_location_has_only_exits(self):
@@ -155,6 +159,7 @@ class TestMenuPresence:
         assert actions["status"].label == "Status"
         assert actions["remember"].label == "Remember"
         assert actions["diary"].label == "Diary"
+        assert actions["map"].label == "Map"
 
     def test_tool_keys_constant(self):
         assert TOOL_KEYS == frozenset(TOOLS)
@@ -251,6 +256,14 @@ class TestToolOutput:
         ).events)
         assert "[SCROLL]" in text
         assert "No open quests" in text
+
+    def test_map_tool(self):
+        st = make_state()
+        text = "\n".join(execute_action(
+            Action("map", "Map"), st,
+        ).events)
+        assert "[MAP]" in text
+        assert "<" in text and ">" in text   # the current node marker
 
 
 

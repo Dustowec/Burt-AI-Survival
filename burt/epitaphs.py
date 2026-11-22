@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,26 @@ def add_epitaph(
 def get_all_epitaphs(state_dir: Path) -> list[dict[str, Any]]:
     """Все эпитафии (alias для load_epitaphs)."""
     return load_epitaphs(state_dir)
+
+
+def archive_epitaphs(state_dir: Path) -> Path | None:
+    """Move epitaphs.json aside for a fresh run (--new).
+
+    Old runs are never deleted: the file becomes
+    epitaphs_<YYYYmmdd_HHMMSS>.json next to the state. Returns the
+    archive path, or None when there was nothing to move.
+    """
+    path = _epitaphs_path(state_dir)
+    if not path.is_file():
+        return None
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target = state_dir / f"epitaphs_{stamp}.json"
+    suffix = 1
+    while target.exists():
+        target = state_dir / f"epitaphs_{stamp}_{suffix}.json"
+        suffix += 1
+    path.replace(target)
+    return target
 
 
 def get_last_epitaph(state_dir: Path) -> dict[str, Any] | None:

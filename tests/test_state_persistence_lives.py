@@ -165,3 +165,63 @@ class TestMainSavesStateOnCrash:
         assert rc == 1
         dumps = list(crash_dir.glob("state_*.json"))
         assert len(dumps) == 1
+
+
+class TestNewArchivesEpitaphs:
+    @pytest.mark.asyncio
+    async def test_new_moves_epitaphs_aside(self, tmp_path):
+        from burt import epitaphs as ep
+
+        state_path = tmp_path / "state.json"
+        ep.save_epitaphs(tmp_path, [{"life": 1, "epitaph": "old",
+                                     "cause": "hunger", "days": 1}])
+
+        async def fake_game_loop(*a, **kw):
+            return _mk_state(life=1)
+
+        with (
+            patch("sys.argv", ["main.py", "--state", str(state_path),
+                               "--new", "--max-steps", "1"]),
+            patch("main.setup_logging"),
+            patch("main.state_io.save_state"),
+            patch("main.game_loop", side_effect=fake_game_loop),
+            patch("main.load_dialogue_engine", return_value=None),
+            patch("main.PluginLogger") as plugin_cls,
+            patch("main.GameSessionLog"),
+        ):
+            plugin_cls.return_value.stop = AsyncMock()
+            rc = await main.main()
+
+        assert rc == 0
+        assert not (tmp_path / "epitaphs.json").exists()
+        archives = list(tmp_path.glob("epitaphs_*.json"))
+        assert len(archives) == 1
+
+    @pytest.mark.asyncio
+    async def test_keep_epitaphs_flag(self, tmp_path):
+        from burt import epitaphs as ep
+
+        state_path = tmp_path / "state.json"
+        ep.save_epitaphs(tmp_path, [{"life": 1, "epitaph": "old",
+                                     "cause": "hunger", "days": 1}])
+
+        async def fake_game_loop(*a, **kw):
+            return _mk_state(life=1)
+
+        with (
+            patch("sys.argv", ["main.py", "--state", str(state_path),
+                               "--new", "--keep-epitaphs",
+                               "--max-steps", "1"]),
+            patch("main.setup_logging"),
+            patch("main.state_io.save_state"),
+            patch("main.game_loop", side_effect=fake_game_loop),
+            patch("main.load_dialogue_engine", return_value=None),
+            patch("main.PluginLogger") as plugin_cls,
+            patch("main.GameSessionLog"),
+        ):
+            plugin_cls.return_value.stop = AsyncMock()
+            rc = await main.main()
+
+        assert rc == 0
+        assert (tmp_path / "epitaphs.json").exists()
+        assert list(tmp_path.glob("epitaphs_*.json")) == []

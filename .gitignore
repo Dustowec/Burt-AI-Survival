@@ -10,6 +10,7 @@ state.json
 LOGS/
 .env
 epitaphs.json
+epitaphs_*.json
 .gigacode_vsc/
 burt/api_config.py
 .idea/

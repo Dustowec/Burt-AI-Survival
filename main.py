@@ -149,6 +149,8 @@ def _ensure_runtime_fields(state: dict) -> None:
     skills.ensure_state(hidden, visible)
     # §33: faith statuses and chain counters (old saves get neutral).
     faith.ensure_runtime(state)
+    # 18: quests of old saves have no journal tag (Q1, Q2, ...).
+    quests.ensure_tags(hidden)
     # §13: repair curse/blessing records and mirror them into visible.
     events.ensure_state(hidden)
     events.sync_visible(hidden, visible)
@@ -912,10 +914,13 @@ async def game_loop(
                     )
                 new_life = old_life + 1
 
-                # Пишем память в новую жизнь из epitaphs
+                # Memory comes from the epitaph just written, not from the
+                # last line of the archive: a failed epitaph must not revive
+                # a life from a previous run.
                 new_state = make_new_state(
                     life=new_life,
-                    epitaphs_dir=epitaphs_dir,
+                    memory=state["meta"].get("memory"),
+                    memory_cause=state["meta"].get("memory_cause"),
                 )
                 _sync_hidden_from_meta(new_state)
                 _ensure_runtime_fields(new_state)
@@ -993,6 +998,9 @@ async def main() -> int:
                         help=f"State file (default: {DEFAULT_STATE_PATH})")
     parser.add_argument("--new", action="store_true",
                         help="Start a new life (ignore existing state)")
+    parser.add_argument("--keep-epitaphs", action="store_true",
+                        help="With --new: keep epitaphs.json as is "
+                             "(by default it is archived)")
     parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS,
                         help=f"Stop after N turns (default: {DEFAULT_MAX_STEPS})")
     parser.add_argument("--dry-run", action="store_true",
@@ -1005,6 +1013,10 @@ async def main() -> int:
 
     state_path = args.state
     if args.new:
+        if not args.keep_epitaphs:
+            archived = epitaphs_mod.archive_epitaphs(state_path.parent)
+            if archived is not None:
+                logger.info("Epitaphs archived to %s", archived)
         state = make_new_state(life=1)
         _sync_hidden_from_meta(state)
         _ensure_runtime_fields(state)

@@ -19,6 +19,7 @@ from burt.epitaphs import (
     add_epitaph,
     get_all_epitaphs,
     get_last_epitaph,
+    archive_epitaphs,
 )
 
 
@@ -199,3 +200,46 @@ class TestGetLastEpitaph:
         result = get_last_epitaph(tmp_path)
         assert result is not None
         assert result["life"] == 1
+
+
+# ??? archive_epitaphs (--new) ??????????????????????????????????
+
+
+class TestArchiveEpitaphs:
+    """--new archives the old journal instead of deleting it."""
+
+    def test_no_file_returns_none(self, tmp_path: Path):
+        assert archive_epitaphs(tmp_path) is None
+
+    def test_file_is_moved_aside(self, tmp_path: Path):
+        save_epitaphs(tmp_path, [{"life": 1, "epitaph": "old",
+                                  "cause": "hunger", "days": 1}])
+        archived = archive_epitaphs(tmp_path)
+        assert archived is not None
+        assert archived.is_file()
+        assert archived.name.startswith("epitaphs_")
+        assert archived.name.endswith(".json")
+        assert not (tmp_path / EPITAPHS_FILENAME).exists()
+
+    def test_archive_keeps_the_content(self, tmp_path: Path):
+        entries = [{"life": 1, "epitaph": "old", "cause": "hunger",
+                    "days": 1}]
+        save_epitaphs(tmp_path, entries)
+        archived = archive_epitaphs(tmp_path)
+        assert json.loads(archived.read_text(encoding="utf-8")) == entries
+
+    def test_fresh_journal_starts_empty(self, tmp_path: Path):
+        save_epitaphs(tmp_path, [{"life": 1, "epitaph": "old",
+                                  "cause": "hunger", "days": 1}])
+        archive_epitaphs(tmp_path)
+        assert load_epitaphs(tmp_path) == []
+
+    def test_two_archives_in_the_same_second_do_not_clash(self, tmp_path: Path):
+        save_epitaphs(tmp_path, [{"life": 1, "epitaph": "a",
+                                  "cause": "hunger", "days": 1}])
+        first = archive_epitaphs(tmp_path)
+        save_epitaphs(tmp_path, [{"life": 1, "epitaph": "b",
+                                  "cause": "hunger", "days": 1}])
+        second = archive_epitaphs(tmp_path)
+        assert first != second
+        assert first.is_file() and second.is_file()

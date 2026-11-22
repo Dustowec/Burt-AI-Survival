@@ -34,6 +34,7 @@ from burt import reputation
 from burt import loot
 from burt import search as search_mod
 from burt import items
+from burt import map as map_mod
 from burt import economy
 from burt import progression
 from burt import trade
@@ -116,7 +117,7 @@ _COMBAT_HEADER = "[COMBAT]"  # first line of sensory.format_combat_report
 
 # §26: free tools. A tool never advances the day counter.
 TOOL_KEYS: frozenset[str] = frozenset({
-    "scroll", "inventory", "status", "remember", "diary",
+    "scroll", "inventory", "status", "remember", "diary", "map",
 })
 
 _TOOL_LABELS: dict[str, str] = {
@@ -125,6 +126,7 @@ _TOOL_LABELS: dict[str, str] = {
     "status": "Status",
     "remember": "Remember",
     "diary": "Diary",
+    "map": "Map",
 }
 
 # §11: why Burt did not get where he was going. Reason only, no numbers.
@@ -279,7 +281,7 @@ def build_menu(visible: dict, state: dict, *,
 
     actions.extend(talk_actions)
     return _append_tools(
-        actions, ("inventory", "status", "remember", "diary"),
+        actions, ("inventory", "status", "remember", "diary", "map"),
     )
 
 
@@ -798,6 +800,11 @@ def format_diary(state: dict) -> str:
     return "[DIARY]\n" + body
 
 
+def format_map(state: dict) -> str:
+    """Spec 26 map tool: what Burt remembers of the world (spec 17)."""
+    return map_mod.render_ascii(state)
+
+
 def _execute_tool(action: Action, state: dict) -> ActionResult | None:
     """§26: free tools. Return None for a normal (non-tool) action."""
     key = action.key
@@ -811,6 +818,8 @@ def _execute_tool(action: Action, state: dict) -> ActionResult | None:
         return ActionResult(events=[format_status(state)])
     if key == "remember":
         return ActionResult(events=[format_memory(state)])
+    if key == "map":
+        return ActionResult(events=[format_map(state)])
     return ActionResult(events=[format_diary(state)])
 
 
@@ -2075,6 +2084,8 @@ def format_scroll(state: dict) -> str:
             done = entry.get("progress", 0)
             progress = f"{done}/{required}"
 
+        tag = entry.get("tag")
+        name = f"{tag} {title}" if tag else title
         deadline = entry.get("deadline_day")
         if deadline is None:
             left = "no deadline"
@@ -2082,7 +2093,7 @@ def format_scroll(state: dict) -> str:
             days_left = max(0, deadline - day)
             left = f"{days_left} days left"
 
-        lines.append(f"{title} — {progress}, {left}")
+        lines.append(f"{name} — {progress}, {left}")
     return "\n".join(lines) + "\n"
 
 

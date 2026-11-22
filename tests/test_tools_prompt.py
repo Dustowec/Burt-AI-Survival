@@ -55,6 +55,22 @@ async def test_tool_output_is_injected_into_next_prompt():
 
 
 @pytest.mark.asyncio
+async def test_map_tool_output_reaches_the_next_prompt():
+    st = main.make_new_state(life=1)
+    menu = loop.build_menu(st["visible"], st)
+    idx = next(i for i, a in enumerate(menu) if a.key == "map")
+    fake, calls = _fake_llm([f"CHOICE: {idx}", "CHOICE: 0"])
+
+    with patch.object(main.llm_client, "call_llm", side_effect=fake):
+        await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+        step_after_tool = st["hidden"].get("step", 0)
+        await main.run_turn(st, [], rng=lambda: 4, dry_run=False)
+
+    assert step_after_tool == 0          # a tool is free
+    assert "[MAP]" in calls[1]["user"]
+
+
+@pytest.mark.asyncio
 async def test_tool_does_not_advance_step_in_run_turn():
     st = main.make_new_state(life=1)
     step_before = st["hidden"].get("step", 0)

@@ -166,6 +166,7 @@ def create_initial_state(
             "faith": faith.new_state(),
             "skills_raw": [],
             "quests_raw": [],
+            "quest_counter": 0,
             "location_graph": starting_graph,
             "current_node_id": STARTING_NODE_ID,
             "npcs_here": [],

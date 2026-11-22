@@ -190,6 +190,105 @@ class TestEpitaphInjectedInNewLifeReport:
 # Test 4 - the log line reports the memory of the NEW life
 # ------------------------------------------------------------------
 
+class TestNoStaleMemory:
+    @pytest.mark.asyncio
+    async def test_failed_epitaph_leaves_no_memory(self, tmp_path):
+        """A dead run must not inherit an epitaph from a previous run."""
+        from burt import epitaphs as ep
+
+        ep.save_epitaphs(tmp_path, [{
+            "life": 1, "epitaph": "A life from another run.",
+            "cause": "combat", "days": 3,
+        }])
+
+        state = _mk_state(life=1)
+        calls = {"n": 0}
+
+        async def fake_run_turn(state, history, rng, dry_run, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return main.TurnResult(
+                    game_over=True, history=history, death_cause="hunger",
+                )
+            return main.TurnResult(game_over=False, history=history)
+
+        async def broken_epitaph(state, cause, epitaphs_dir=None):
+            raise RuntimeError("LLM is down")
+
+        res_mod.ResurrectionOutcome = type(
+            "E", (), {"SUCCESS": "success", "FAILED": "failed"}
+        )
+        try:
+            with (
+                patch("main.run_turn", side_effect=fake_run_turn),
+                patch("main.resurrection.check_resurrection",
+                      return_value="failed"),
+                patch("main.state_io.save_state"),
+                patch("main._write_epitaph", side_effect=broken_epitaph),
+            ):
+                await main.game_loop(
+                    state, [], max_steps=2, dry_run=False,
+                    state_path=tmp_path / "state.json",
+                    epitaphs_dir=tmp_path,
+                )
+        finally:
+            setattr(
+                res_mod, "ResurrectionOutcome", _REAL_ResurrectionOutcome
+            )
+
+        assert state["meta"]["life"] == 2
+        assert state["meta"].get("memory") is None
+
+    @pytest.mark.asyncio
+    async def test_fresh_epitaph_wins_over_the_archive(self, tmp_path):
+        """Memory is the epitaph of THIS run, not the last archived one."""
+        from burt import epitaphs as ep
+
+        ep.save_epitaphs(tmp_path, [{
+            "life": 1, "epitaph": "A life from another run.",
+            "cause": "combat", "days": 3,
+        }])
+
+        state = _mk_state(life=1)
+        calls = {"n": 0}
+
+        async def fake_run_turn(state, history, rng, dry_run, *a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return main.TurnResult(
+                    game_over=True, history=history, death_cause="hunger",
+                )
+            return main.TurnResult(game_over=False, history=history)
+
+        async def fake_epitaph(state, cause, epitaphs_dir=None):
+            state["meta"]["memory"] = "I died hungry in this run."
+            state["meta"]["memory_cause"] = cause
+
+        res_mod.ResurrectionOutcome = type(
+            "E", (), {"SUCCESS": "success", "FAILED": "failed"}
+        )
+        try:
+            with (
+                patch("main.run_turn", side_effect=fake_run_turn),
+                patch("main.resurrection.check_resurrection",
+                      return_value="failed"),
+                patch("main.state_io.save_state"),
+                patch("main._write_epitaph", side_effect=fake_epitaph),
+            ):
+                await main.game_loop(
+                    state, [], max_steps=2, dry_run=False,
+                    state_path=tmp_path / "state.json",
+                    epitaphs_dir=tmp_path,
+                )
+        finally:
+            setattr(
+                res_mod, "ResurrectionOutcome", _REAL_ResurrectionOutcome
+            )
+
+        assert state["meta"]["life"] == 2
+        assert state["meta"]["memory"] == "I died hungry in this run."
+
+
 class TestMemoryFlagInLog:
     @pytest.mark.asyncio
     async def test_log_reports_inherited_memory(self, caplog):
