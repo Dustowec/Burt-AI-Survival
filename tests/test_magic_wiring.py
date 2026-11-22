@@ -317,6 +317,21 @@ class TestMageSpawn:
         npc_spawn.ensure_npcs(hidden, "temple", "n1", _rng_seq(1))
         assert hidden["npcs_here"] == ["cleric", "mage_event"]
 
+    def test_d6_stream_with_five_does_not_crash(self):
+        # Regression: the engine die is d6, the element die is 1d4.
+        hidden = self._hidden()
+        assert npc_spawn.maybe_add_mage(
+            hidden, "temple", "n1", _rng_seq(5, 5, 3),
+        ) is True
+        assert hidden["magic"]["teachers"]["mage_event"]["element"] == "earth"
+
+    def test_d6_stream_with_six_does_not_crash(self):
+        hidden = self._hidden(role="necromancer")
+        assert npc_spawn.maybe_add_mage(
+            hidden, "dungeon", "n1", _rng_seq(6, 6, 1),
+        ) is True
+        assert hidden["magic"]["teachers"]["mage_event"]["element"] == "fire"
+
 
 # ---------------------------------------------------------------------
 # Casting in combat (§9, §23)

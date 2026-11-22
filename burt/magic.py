@@ -95,22 +95,38 @@ _ELEMENT_BY_ROLL: tuple[str, ...] = (
     "air",
 )
 
+# The engine has one die and it is d6 (dice.roll_d6). A 5 or a 6 on the
+# element die is rolled again: rejection sampling is what turns a d6 into
+# a real 1d4, so the four elements stay equally likely.
+_MAX_ELEMENT_ROLLS = 4
+
 
 def roll_mage_element(rng: Callable[[], int]) -> str:
-    """§9: стихия мага определяется 1d4 при спавне учителя.
+    """Spec 9: the mage's element is one of four, decided by 1d4 at spawn.
 
-    rng — функция без аргументов, возвращает 1-4.
-    Вызывается ровно один раз.
+    The engine has a single die and it is d6 (dice.roll_d6), so 5 and 6
+    are simply rolled again: rejection sampling is what turns a d6 into a
+    real 1d4, and the four elements stay equally likely. Rerolls are
+    capped at _MAX_ELEMENT_ROLLS; if the die is stuck above 4 (a scripted
+    rng, or 1/27 in a live run) the value wraps 5->1, 6->2 instead of
+    crashing the run.
 
-    Вне диапазона 1-4 — ValueError (это чистое ядро, мусор
-    ловим на входе, не глотаем молча).
+    Anything outside 1..6 is a caller bug: it still raises.
     """
-    roll = rng()
-    if not 1 <= roll <= 4:
-        raise ValueError(
-            f"roll_mage_element: ожидался 1-4, Took {roll!r}"
-        )
-    return _ELEMENT_BY_ROLL[roll - 1]
+    roll = 0
+    for _ in range(_MAX_ELEMENT_ROLLS):
+        roll = rng()
+        if not isinstance(roll, int) or isinstance(roll, bool):
+            raise ValueError(
+                f"roll_mage_element: expected 1-6, got {roll!r}"
+            )
+        if not 1 <= roll <= 6:
+            raise ValueError(
+                f"roll_mage_element: expected 1-6, got {roll!r}"
+            )
+        if roll <= len(_ELEMENT_BY_ROLL):
+            return _ELEMENT_BY_ROLL[roll - 1]
+    return _ELEMENT_BY_ROLL[(roll - 1) % len(_ELEMENT_BY_ROLL)]
 
 
 # ============================================================

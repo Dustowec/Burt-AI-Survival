@@ -85,6 +85,37 @@ class TestRollMageElement:
         result = magic.roll_mage_element(rng)
         assert result in magic.ELEMENTS
 
+    def test_five_is_rerolled(self):
+        # The engine die is d6: 5 must be rerolled, not crash (live bug).
+        seq = [5, 3]
+
+        def rng():
+            return seq.pop(0) if seq else 3
+
+        assert magic.roll_mage_element(rng) == "earth"
+
+    def test_six_is_rerolled(self):
+        seq = [6, 4]
+
+        def rng():
+            return seq.pop(0) if seq else 4
+
+        assert magic.roll_mage_element(rng) == "air"
+
+    def test_stuck_high_roll_wraps_instead_of_crashing(self):
+        # Bounded rerolls: 5 -> fire, 6 -> water.
+        assert magic.roll_mage_element(lambda: 5) == "fire"
+        assert magic.roll_mage_element(lambda: 6) == "water"
+
+    @pytest.mark.parametrize("bad", [0, 7, -1, 12])
+    def test_out_of_range_still_raises(self, bad):
+        with pytest.raises(ValueError):
+            magic.roll_mage_element(lambda: bad)
+
+    def test_bool_is_not_a_roll(self):
+        with pytest.raises(ValueError):
+            magic.roll_mage_element(lambda: True)
+
 
 # ============================================================
 # 3. УСЛОВИЯ КАСТА

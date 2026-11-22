@@ -950,6 +950,35 @@ async def game_loop(
 # CLI
 # ---------------------------------------------------------------------
 
+def _save_after_crash(state: dict, state_path: Path) -> None:
+    """A crash must not cost the run: save what we have (spec 30).
+
+    save_state validates before writing, so a half-mutated state never
+    overwrites a good file. When validation fails the raw copy goes to
+    crashes/ for a post-mortem and state.json stays untouched.
+    """
+    try:
+        _sync_meta_from_hidden(state)
+        state_io.save_state(state_path, state)
+        logger.info("State saved after crash to %s", state_path)
+        return
+    except Exception:
+        logger.exception("Failed to save state after crash")
+
+    try:
+        crash_dir = Path(config.CRASH_DIR)
+        crash_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dump = crash_dir / f"state_{stamp}.json"
+        dump.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        logger.info("Crash state dumped to %s", dump)
+    except Exception:
+        logger.exception("Failed to dump crash state")
+
+
 def setup_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -1049,6 +1078,7 @@ async def main() -> int:
         if plugin is not None:
             plugin.state_change("running", "crashed")
             plugin.die("Fatal error in game loop", exc)
+        _save_after_crash(state, state_path)
         await plugin.stop()
         return 1
 

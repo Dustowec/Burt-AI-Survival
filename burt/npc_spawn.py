@@ -26,7 +26,8 @@ list of the current node (read by loop.build_menu).
 
 §9 teacher spawn: a wandering mage (replica key `mage_event`) shows up in
 temple / dungeon on d6 >= 5, at most once per life. The mage's element is
-rolled (1d4) at spawn time, not at training time — see magic.py.
+rolled (1d4) at spawn time -- a 5 or 6 on the element die is
+rerolled -- not at training time — see magic.py.
 
 Pure core: no I/O, no asyncio, no LLM. Dice are rolled by rng (1..6).
 """
@@ -196,7 +197,8 @@ def maybe_add_mage(
       - temple / dungeon only;
       - d6 >= 5;
       - at most once per life (hidden["magic"]["mage_met"]);
-      - the element is rolled (1d4) right now, at spawn time.
+      - the element is rolled (1d4) right now, at spawn time
+        (5/6 on the element die is rerolled: engine die is d6).
 
     Runs AFTER ensure_npcs, so the fixed role (cleric / necromancer) is
     already in place and stays in front of the list.
