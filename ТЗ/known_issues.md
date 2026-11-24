@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ v0.9.2-BETA + working tree` · Verified: 21.11.2026 · Tests: 2990 passed
+Spec: v0.7.0 · Code: `main @ v0.9.5-BETA + working tree` · Verified: 24.11.2026 · Tests: 3093 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -72,12 +72,17 @@ Implemented in `burt/npc_spawn.py`, wired through `loop._arrive_at_node()`.
 - `ROLE_SPAWN` pools for village / river / road / forest / temple / dungeon
 - village: 1-3 roles by d6, no duplicates; temple/dungeon: one fixed role
 - river/road: one role, plus a rare role (cleric/necromancer) on d6 >= 5
+- **24.11.2026:** `veteran` removed from the forest pool; he now spawns
+  only in the village via `npc_spawn.maybe_add_veteran` (d6 >= 5) and
+  never more than once per 10 game days
+  (`hidden["veteran_last_spawn_day"]`); the forest pool is empty
 - spawn is cached per node in `hidden["npcs_by_node"]` — re-entry shows
   the same people; `hidden["npcs_here"]` is the working list
 - `bandit` stays a monster (§21), never an NPC
 - exploring menu lists `talk_to_*` **together with** exits, search and
   the quest scroll; a revealed encounter (TZ-9) still wins
-- Tests: `test_npc_spawn.py` (50), `test_npc_spawn_loop.py` (13)
+- Tests: `test_npc_spawn.py` (50), `test_npc_spawn_loop.py` (13),
+  `test_veteran_spawn.py` (5)
 
 ### 2a. NPC spawn — ORIGINAL ENTRY (kept for history) — NOT IMPLEMENTED
 
@@ -146,8 +151,14 @@ stacks + node cache) and `burt/loop.py` (`_build_shop_menu`,
 - §9 trophy road: two `goblin_staff` sold to the necromancer and he hands
   over a real `staff` (agreement of 20.11.2026)
 - a failed purchase (no coin, wrong item) does not advance the step
-
-Tests: `test_economy.py` (33), `test_trade_loop.py` (41).
+- **24.11.2026:** per-trader no-money block: every failed purchase with
+  insufficient coin increments `hidden["trade_buy_failures"][role]`;
+  successful buys, sells, changing the item and reopening the shop do not
+  reset it. On the 3rd failure the dialogue is cut, the trader refuses to
+  talk until the next day (`hidden["trade_dialog_blocked_until"][role]`)
+  and the model gets `STOP! You have no money! Go work!` as an inject
+- tests: `test_economy.py` (33), `test_trade_loop.py` (41),
+  `test_trade_no_money_block.py` (11)
 
 ---
 
@@ -203,11 +214,12 @@ Implemented in `burt/weapons.py`, wired through `loop._build_burt_stats`.
   club 1-2, spear 1-3, swords 1-3 / 2-4 / 3-5, magic 3-6
 - quality shifts the range by -1 / 0 / +1; goblin weapons are not gradable
 - non-humanoid weapons cannot be used in combat (selling stays allowed)
-- the best usable weapon is selected automatically by effective damage range
-  (no equip menu exists in the spec)
+- **24.11.2026:** combat uses only the weapon in the `[HANDS]` slot 1;
+  a weapon in the backpack does nothing until equipped. Old saves and
+  fixtures without `hands` fall back to the previous inventory scan
 - `BurtStats.damage_min/max` now come from equipment; casts use the base
   3-6 range plus Magic mastery
-- tests: `test_weapons.py`, `test_combat_equipment.py`
+- tests: `test_weapons.py`, `test_combat_equipment.py`, `test_hands.py`
 
 ### 8. Magic is reachable — DONE (§9) — CLOSED 20.11.2026
 
@@ -360,9 +372,11 @@ diary`, all `cost_free=True`.
   the revealed-encounter menu (only attack_* / go_away_to_*);
 - handlers run before dialog/combat routing: a tool never advances the
   step, never changes mode/HP/wallet/combat;
-- output: `[SCROLL]`, `[INVENTORY]` (`Name — Npcs` / `empty`),
-  `[STATUS]` (HP/MP, Fed, `Sleep: N/20`, `Effects: ...` without
-  duration), `[MEMORY]`, `[DIARY]`;
+- output: `[SCROLL]`, `[INVENTORY]` (`[HANDS]` + `[BACKPACK]`,
+  `Name — Npcs` / `empty`), `[STATUS]` (HP/MP, Fed, `Sleep: N/20`,
+  `Effects: ...` without duration), `[MEMORY]`, `[DIARY]`;
+- **24.11.2026:** the base sensory report shows only `[HANDS]` (max 2
+  slots); the full backpack is visible only through the `inventory` tool
 - `osmotret` is not offered in combat; its legacy semantics are kept;
 - ReAct delivery: `main.run_turn` stores the tool text in
   `hidden["pending_tool_output"]` and prepends it to the next prompt,
@@ -370,24 +384,27 @@ diary`, all `cost_free=True`.
 - `CHOICE` re-ask (new_bug §8) is unchanged: `loop.parse_choice_strict`
   + one retry with `loop.INVALID_CHOICE_KICK`, then
   `loop.fallback_action` (block → osmotret → dialog_exit → first item);
-- tests: `test_tools_menu.py` (33), `test_tools_prompt.py` (3).
+- tests: `test_tools_menu.py` (33), `test_tools_prompt.py` (3),
+  `test_hands.py`.
 
 **Evidence:** `burt/loop.py` (`TOOL_KEYS`, `_append_tools`, `_execute_tool`,
 `format_inventory/status/memory/diary`), `burt/sensory.py`
 (`format_inventory`, `format_status`), `main.py` (`pending_tool_output`).
 
-### 13. Sleep availability honours bedroll / tavern room — DONE (§5) — CLOSED 20.11.2026
+### 13. Sleep availability honours bedroll / tavern room — DONE (§5) — CLOSED 20.11.2026 · UPDATED 24.11.2026
 
 `sleep.is_sleep_available(step, in_combat, has_bedroll, has_room)` is now the
-gate of the menu entry (`loop._sleep_available`).
+gate of the only voluntary sleep action (`loop._sleep_available`).
 
-- `sleep` appears only from step 19, outside combat, with a `bedroll` in the
-  inventory or `hidden["has_room_tonight"]`
-- `write_diary_and_go_sleep` requires the same gate plus step >= 19
+- **24.11.2026:** the ordinary `sleep` action is removed completely;
+  the menu offers only `write_diary_and_go_sleep`
+- `write_diary_and_go_sleep` appears only from step 19, outside combat,
+  with a `bedroll` in the inventory or `hidden["has_room_tonight"]`
 - a paid room is consumed by sleep (`has_room_tonight = False`) in both
   `loop` and `main._do_sleep`
-- **kept deviation:** below step 19 a Burt with critical HP (< 25%) may still
-  sleep without a bed — see the deviations table
+- the old critical-HP safety valve (sleep without a bed below step 19) is
+  removed together with the ordinary sleep action
+- forced sleep at step 20 still needs no bed and still wraps the day
 
 ### 14. Day counter advances during dialogue (§3) — DONE — CLOSED 20.11.2026
 
@@ -399,7 +416,11 @@ The whole dialogue is one action now (new_bug §1):
 - food is unavailable in dialog mode (menu and routing);
 - `Session.say()` now advances the dialogue turn, so the anger lock
   expires and `dialog_exit` reopens after two replies;
-- tests: `test_dialogue_single_action.py`.
+- **24.11.2026:** dialog anti-loop: three identical dialog actions in a
+  row force `mode=exploring`, cost 1 HP and inject
+  `Shut up, kid! I don't have time for this!`; `dialog_exit` and shop
+  transactions break the streak instead of counting;
+- tests: `test_dialogue_single_action.py`, `test_dialog_repeat_guard.py`.
 
 ### 15. Start inject from the rules file is missing (§37) — NOT IMPLEMENTED
 
@@ -409,7 +430,8 @@ The whole dialogue is one action now (new_bug §1):
 
 ### 16. State files of §2 do not match the spec — PARTIAL
 
-**Missing:** `game_session.jsonl`, `memory.json`, `quests.json`, `diary.json`.
+**Missing:** `memory.json`, `quests.json`, `diary.json`.
+(`game_session.jsonl` is implemented — see #1.)
 
 **Diary:** lives as a single string in `hidden["diary"]`; spec wants `diary.json` with `entries[]` + `summaries[]`, raw entries going to `game_session.jsonl`.
 
@@ -429,9 +451,11 @@ The whole dialogue is one action now (new_bug §1):
 
 **Evidence:** `bestiary.py` defines `passive` (bear does not pursue) and `wounded_prey` (boar attacks only a wounded Burt); `combat.py` reads only `no_flee` (line 246) and `staff_penalty` (lines 385, 486).
 
-### 19. Non-humanoid weapon ban is moot (§20) — NOT IMPLEMENTED
+### 19. Non-humanoid weapon ban is moot (§20) — DONE — CLOSED 24.11.2026
 
-No weapon system exists (#7), so `goblin_dagger` / `goblin_staff` cannot be equipped or forbidden either way. Selling them is allowed by the spec and stays allowed.
+With the `[HANDS]` equip mechanic the ban is real: `hands.is_weapon_item`
+rejects `goblin_dagger` / `goblin_staff` (`humanoid=False`), so they cannot
+be equipped; selling them stays allowed. Tests: `test_hands.py`.
 
 ### 20. Duplicated and dead constants — PARTIAL
 
@@ -461,11 +485,12 @@ Still never read by the game: `SHOW_HUNGER_TIMER`, `MEMORY_COMPRESS_AT`.
 
 ### 24. Documentation drift — PARTIAL
 
-README was refreshed in v0.9.1: version, 2665 tests, HANDOFF-1..25,
-the finished life cycle, the new_bug mechanics, NPC hostility and the
-"Что дальше" section now match the code. Remaining drift: the
-module/test lists in README are not exhaustive, and older HANDOFFs keep
-their historical notes.
+README and `ТЗ/known_issues.md` were refreshed for v0.9.5-BETA: version,
+3093 tests, HANDOFF-1..28, `[HANDS]`/`[BACKPACK]`, the removed ordinary
+sleep, dialog anti-loop, veteran spawn, trade no-money block and the
+updated rules files. Remaining drift: older HANDOFFs keep their historical
+notes, and `rules/*.md` are player-facing summaries rather than a full
+generated reference.
 
 ---
 
@@ -475,7 +500,8 @@ their historical notes.
 |---|---|---|
 | §4 | Hunger inject fires on EVERY step with `eat=False` (spec: steps 0 and 10 only) | the model saw "Fed: yes" and "you are hungry" at the same time |
 | §25, §31 | `SHOW_SLEEP_TIMER` removed, no `Sleep: 15/20` in `[STATE]` | `sleep_counter` was never updated and confused the LLM (HANDOFF-12) |
-| §5 | Below step 19 a Burt with critical HP (< 25%) may sleep without a bed | safety valve; a dying model kept walking into death without it (kept after #13) |
+| §30 | `[HANDS]` holds at most two item references; the full backpack is visible only through the `inventory` tool | small-model context control (24.11.2026) |
+| §35 | Three failed purchases with insufficient coin block that trader's dialogue until the next day | anti-loop and anti-spam (24.11.2026) |
 | §29 | Diary = one string, overwritten daily, no 5-day summary | HANDOFF-13, deliberate |
 | §28 | Memory via `epitaphs.json` + `meta["memory"]` | HANDOFF-15 |
 | §26 | No re-ask when `CHOICE` is missing | replaced by rfind + synonym parser |
@@ -506,23 +532,27 @@ their historical notes.
 - **XP / levels (§7):** `visible.level/xp`, exact cap curve, kill XP, level-up stats, end-of-combat check — done (#5).
 - **Skills (§8):** 10-skill registry, weapon mastery strikes, range/roll bonuses, thresholds 5/10 — done (#6).
 - **Weapon table (§20):** damage ranges, quality, non-humanoid ban, equipment-driven `BurtStats` — done (#7).
-- **Sleep gate (§5):** bedroll or paid room via `sleep.is_sleep_available` — done (#13).
+- **Sleep gate (§5):** bedroll or paid room via `sleep.is_sleep_available` — done (#13); ordinary sleep removed 24.11.2026.
+- **v0.9.3–v0.9.5 mechanics:** tutorial `young_goblin`, map tool, journal tags, `[HANDS]`/`[BACKPACK]`, diary-only sleep, morning `CHECK YOUR DIARY!!!`, veteran village spawn with a 10-day cooldown, dialog anti-loop and per-trader no-money block — done and covered by tests.
 - **`loop.py.back` leftover:** no longer present in `burt/`.
 - **Gemma 3n robotic behaviour:** model limitation, WON'T FIX.
 - **LLM ignores micro-location context:** cosmetic, open but harmless.
 
 ---
 
-## Stale claims corrected in this revision (2026-11-20)
+## Stale claims corrected in this revision (2026-11-24)
 
 | Old claim | Reality |
 |---|---|
-| "npc.py NEVER IMPLEMENTED" | `npc.py` exists (349 lines) and is wired into the menu/execution path; the real gap is NPC spawn (#2) |
+| "npc.py NEVER IMPLEMENTED" | `npc.py` exists and is wired into the menu/execution path; the real gap is NPC spawn (#2) |
 | "TZ-10 UNCOMMITTED" | committed: `a32d64e` "complete TZ-10..." |
 | "`loop.py.back` exists in burt/" | absent |
 | "`SHOW_SLEEP_TIMER` missing — minor" | removed on purpose, see Intentional Deviations |
-| "chain templates not in code" | `quests_templates.json` has `pala_1..3` / `heretic_1..3`; they are simply never issued (#3) |
-| "trade.py / magic.py are dead code" | both are wired now: `burt/economy.py` + shop sub-mode for trade, `magic.cast_ready` + teacher spawn for magic (#4, #8) |
+| "chain templates not in code" | `quests_templates.json` has `pala_1..3` / `heretic_1..3` |
+| "trade.py / magic.py are dead code" | both are wired now (#4, #8) |
+| "there are two sleep actions" | ordinary `Sleep` removed in v0.9.5-BETA; only diary sleep + forced sleep remain |
+| "the veteran lives in the forest" | moved to the village with a 10-day cooldown in v0.9.5-BETA |
+| "combat auto-selects the best weapon from inventory" | only the `[HANDS]` weapon is used since v0.9.5-BETA |
 
 ---
 
@@ -530,13 +560,13 @@ their historical notes.
 
 | Severity | Count |
 |---|---|
-| 🔴 Critical | 0 (was 4; logging, NPC spawn, role quests, trade closed) |
-| 🟠 High | 2 (was 7; reputation, magic, XP, skills and the weapon table closed) |
-| 🟡 Medium | 2 (was 5; sleep, dialogue-as-one-action and the tools menu closed) |
-| 🟢 Low | 8 |
-| ⚪ Intentional deviations | 8 |
-| ✅ Closed | 14 (#1 logging, #2 NPC spawn, #3 role quests, #4 trade, #5 XP/levels, #6 skills, #7 weapon table, #8 magic, #9 reputation, #11 events/preacher, #12 tools menu, #13 sleep, #14 dialogue, day rollover/resurrection) |
-| **Total open** | **11** |
+| 🔴 Critical | 0 |
+| 🟠 High | 0 |
+| 🟡 Medium | 2 (#15 start rules inject, #16 state files of §2) |
+| 🟢 Low | 6 (#17 bandit, #18 enemy tags, #20 duplicate constants, #21 dead config flags, #22 role key mismatch, #24 documentation drift) |
+| ⚪ Intentional deviations | 9 |
+| ✅ Closed | 15 (#1–#14 + #19; plus v0.9.3–v0.9.5 mechanics listed above) |
+| **Total open** | **8** |
 
 ---
 
@@ -544,13 +574,14 @@ their historical notes.
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe -q            # 2990 passed (full: tests/ + root test_npc_integration.py)
+.\.venv\Scripts\pytest.exe -q            # 3093 passed (full: tests/ + root test_npc_integration.py)
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5
 ```
 
-No live LLM run was made for the §10/§13 and §26 changes; the contract
-is covered by unit/integration tests only.
+No live LLM run was made for the v0.9.5-BETA changes (sleep/diary,
+`[HANDS]`, dialog anti-loop, veteran spawn, trade no-money block); the
+contract is covered by unit/integration tests only.
 
 
