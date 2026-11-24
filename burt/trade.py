@@ -120,6 +120,92 @@ ROLE_SELLS: dict[str, frozenset[str]] = {
 
 
 # ============================================================
+# БЛОКИРОВКА ТОРГОВЛИ ПРИ НЕХВАТКЕ ДЕНЕГ
+# ============================================================
+#
+# Пер-торговец: у каждой роли свой счётчик неудачных покупок и свой
+# блок диалога. Счётчик живёт в пределах одного игрового дня и НЕ
+# сбрасывается успешной покупкой, продажей, сменой товара или
+# повторным открытием магазина. На 3-й неудачной покупке диалог с
+# этим торговцем обрывается, а поговорить с ним снова можно только
+# на следующий день.
+
+TRADE_BUY_FAIL_LIMIT = 3
+TRADE_NO_MONEY_TEXT = "STOP! You have no money! Go work!"
+
+
+def ensure_state(hidden: dict) -> dict:
+    """Repair the per-trader trade block fields (old saves)."""
+    failures = hidden.get("trade_buy_failures")
+    if not isinstance(failures, dict):
+        hidden["trade_buy_failures"] = {}
+    blocked = hidden.get("trade_dialog_blocked_until")
+    if not isinstance(blocked, dict):
+        hidden["trade_dialog_blocked_until"] = {}
+    fail_day = hidden.get("trade_fail_day")
+    if not isinstance(fail_day, int) or isinstance(fail_day, bool):
+        hidden["trade_fail_day"] = hidden.get("day", 1)
+    return hidden
+
+
+def refresh_day(hidden: dict, day: int) -> None:
+    """Reset the counters when the game day changes.
+
+    Expired blocks (until <= day) are dropped. The counters are
+    per-trader and per-day: a new day gives every trader a clean slate.
+    """
+    ensure_state(hidden)
+    if hidden.get("trade_fail_day") == day:
+        return
+    hidden["trade_buy_failures"] = {}
+    blocked = hidden.get("trade_dialog_blocked_until") or {}
+    hidden["trade_dialog_blocked_until"] = {
+        role: until
+        for role, until in blocked.items()
+        if isinstance(until, int) and not isinstance(until, bool)
+        and until > day
+    }
+    hidden["trade_fail_day"] = day
+
+
+def is_dialog_blocked(hidden: dict, role: str, day: int) -> bool:
+    """True while this trader refuses to talk (until the next day).
+
+    Read-only: never rolls a die and never mutates the state, so it is
+    safe to call from build_menu.
+    """
+    blocked = hidden.get("trade_dialog_blocked_until")
+    if not isinstance(blocked, dict):
+        return False
+    until = blocked.get(role)
+    if not isinstance(until, int) or isinstance(until, bool):
+        return False
+    return day < until
+
+
+def record_failed_buy(hidden: dict, role: str, day: int) -> bool:
+    """Count one failed purchase. True when the dialogue must be cut.
+
+    The counter accumulates across items, successful purchases, shop
+    closings and repeated dialogue openings within the same day.
+    """
+    refresh_day(hidden, day)
+    ensure_state(hidden)
+    failures = hidden["trade_buy_failures"]
+    count = failures.get(role, 0)
+    if not isinstance(count, int) or isinstance(count, bool):
+        count = 0
+    count += 1
+    failures[role] = count
+
+    if count < TRADE_BUY_FAIL_LIMIT:
+        return False
+
+    hidden["trade_dialog_blocked_until"][role] = day + 1
+    return True
+
+
+# ============================================================
 # МОДИФИКАТОР ЦЕНЫ ЛОКАЦИИ
 # ============================================================
 

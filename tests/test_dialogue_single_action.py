@@ -107,8 +107,9 @@ class TestDialogActions:
     def test_replies_do_not_tick(self, engine):
         st = make_state(step=5)
         open_dialog(st, "merchant", engine)
-        for _ in range(5):
-            execute_action(Action("dialog_polite", "Polite"), st,
+        replies = ("dialog_polite", "dialog_truth")
+        for i in range(5):
+            execute_action(Action(replies[i % 2], replies[i % 2]), st,
                            rng=_rng_seq(4, 4), dialogue_engine=engine)
             assert step(st) == 5
 
@@ -158,8 +159,9 @@ class TestWholeDialogue:
         open_dialog(st, "merchant", engine)
         assert step(st) == before
 
-        for _ in range(5):
-            execute_action(Action("dialog_polite", "Polite"), st,
+        replies = ("dialog_polite", "dialog_truth")
+        for i in range(5):
+            execute_action(Action(replies[i % 2], replies[i % 2]), st,
                            rng=_rng_seq(4, 4), dialogue_engine=engine)
             assert step(st) == before
 

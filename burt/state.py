@@ -149,6 +149,7 @@ def create_initial_state(
                 {"name": "bread", "count": 2},
                 {"name": "water", "count": 1},
                 ],
+            "hands": {"weapon": None, "item": "bread"},
             "wallet": dict(STARTING_WALLET),
             "skills_visible": [],
             "state": "exploring",
@@ -194,6 +195,11 @@ def create_initial_state(
             "injected_day": 0,
             "pending_encounter": None,
             "encounter_revealed": False,
+            "veteran_last_spawn_day": 0,
+            # §35 updated: per-trader no-money block (resets next day).
+            "trade_buy_failures": {},
+            "trade_dialog_blocked_until": {},
+            "trade_fail_day": 1,
         },
     }
 
@@ -311,6 +317,19 @@ def validate_state(state: dict[str, Any]) -> None:
     extra = set(wallet.keys()) - {"coin"}
     if extra:
         raise ValueError(f"visible.wallet has unknown keys: {sorted(extra)}")
+
+    # visible: hands (§30 updated) is optional for old saves.
+    hands_block = visible.get("hands")
+    if hands_block is not None:
+        if not isinstance(hands_block, dict):
+            raise ValueError("visible.hands must be dict")
+        for slot in ("weapon", "item"):
+            value = hands_block.get(slot)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(
+                    f"visible.hands.{slot} must be str or None, "
+                    f"got {type(value).__name__}"
+                )
 
     # visible: локация без id
     location = visible.get("location")

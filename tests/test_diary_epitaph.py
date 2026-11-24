@@ -54,7 +54,7 @@ class TestBuildMenuDiary:
     def test_write_diary_at_step_19(self):
         st = _state(step=19)
         keys = [a.key for a in build_menu(st["visible"], st)]
-        assert "sleep" in keys
+        assert "sleep" not in keys
         assert "write_diary_and_go_sleep" in keys
 
     def test_no_write_diary_at_step_5(self):
@@ -66,7 +66,7 @@ class TestBuildMenuDiary:
         st = _state(step=5)
         st["visible"]["hp"] = 1
         keys = [a.key for a in build_menu(st["visible"], st)]
-        assert "sleep" in keys
+        assert "sleep" not in keys
         assert "write_diary_and_go_sleep" not in keys
 
 
@@ -76,13 +76,17 @@ class TestBuildMenuDiary:
 class TestSleepClearsDiary:
     def test_sleep_clears_diary_if_not_written_today(self):
         st = _state(diary="old text", written_today=False)
-        execute_action(Action("sleep", "Sleep"), st, rng=lambda: 4)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st, rng=lambda: 4,
+        )
         assert st["hidden"]["diary"] is None
         assert st["hidden"]["diary_skipped_today"] is True
 
     def test_sleep_preserves_diary_if_written_today(self):
         st = _state(diary="fresh text", written_today=True)
-        execute_action(Action("sleep", "Sleep"), st, rng=lambda: 4)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st, rng=lambda: 4,
+        )
         assert st["hidden"]["diary"] == "fresh text"
         assert st["hidden"]["diary_skipped_today"] is False
 
@@ -90,7 +94,9 @@ class TestSleepClearsDiary:
         st = _state()
         st["hidden"]["day_log"] = [{"step": 0, "location": "x",
                                      "llm_message": "y", "action": "z"}]
-        execute_action(Action("sleep", "Sleep"), st, rng=lambda: 4)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st, rng=lambda: 4,
+        )
         assert st["hidden"]["day_log"] == []
 
     def test_write_diary_and_go_sleep_behaves_like_sleep(self):
@@ -204,6 +210,16 @@ class TestRunTurnInjection:
         user_msg = mock.call_args[0][1]
         assert "punished by the gods of oblivion" in user_msg
         assert st["hidden"]["diary_skipped_today"] is False
+
+    def test_morning_check_your_diary_instruction(self):
+        st = _state(day=2, injected_day=1, diary="yesterday I walked.")
+        mock = AsyncMock(return_value=("CHOICE: 0", []))
+        with patch.object(main.llm_client, "call_llm", new=mock), \
+                patch.object(main.loop, "execute_action",
+                             return_value=ActionResult(events=[], game_over=False)):
+            asyncio.run(main.run_turn(st, [], rng=lambda: 4, dry_run=False))
+        user_msg = mock.call_args[0][1]
+        assert "CHECK YOUR DIARY!!!" in user_msg
 
 
 class TestRunTurnDayLog:

@@ -297,7 +297,7 @@ class TestTavernRoom:
         st = make_state(coin=50, inventory=[{"name": "bedroll", "count": 1}])
         st["hidden"]["has_room_tonight"] = True
         st["hidden"]["step"] = 19
-        execute_action(Action("sleep", "Sleep"), st)
+        execute_action(Action("write_diary_and_go_sleep", "Diary+sleep"), st)
         assert st["hidden"]["has_room_tonight"] is False
 # ---------------------------------------------------------------------
 # Selling (§35, §22 loot)

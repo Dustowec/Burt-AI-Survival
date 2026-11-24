@@ -84,24 +84,25 @@ class TestSleepMenu:
         assert "sleep" not in keys(st)
         assert "write_diary_and_go_sleep" not in keys(st)
 
-    def test_sleep_with_bedroll(self):
+    def test_write_diary_with_bedroll(self):
         st = make_state(step=19, inventory=[{"name": "bedroll", "count": 1}])
-        assert "sleep" in keys(st)
+        assert "sleep" not in keys(st)
         assert "write_diary_and_go_sleep" in keys(st)
 
-    def test_sleep_with_paid_room(self):
+    def test_write_diary_with_paid_room(self):
         st = make_state(step=19, has_room_tonight=True)
-        assert "sleep" in keys(st)
+        assert "sleep" not in keys(st)
+        assert "write_diary_and_go_sleep" in keys(st)
 
     def test_no_sleep_before_step_19_even_with_bedroll(self):
         st = make_state(step=5, inventory=[{"name": "bedroll", "count": 1}])
         assert "sleep" not in keys(st)
         assert "write_diary_and_go_sleep" not in keys(st)
 
-    def test_critical_hp_keeps_the_safety_valve(self):
-        # documented deviation: a dying Burt may sleep without a bed
+    def test_critical_hp_has_no_sleep_before_19(self):
+        # ordinary sleep is gone; the safety valve no longer exists
         st = make_state(step=5, hp=2)
-        assert "sleep" in keys(st)
+        assert "sleep" not in keys(st)
         assert "write_diary_and_go_sleep" not in keys(st)
 
     def test_combat_menu_has_no_sleep(self):
@@ -109,6 +110,7 @@ class TestSleepMenu:
                         inventory=[{"name": "bedroll", "count": 1}])
         st["hidden"]["combat"] = None
         assert "sleep" not in keys(st)
+        assert "write_diary_and_go_sleep" not in keys(st)
 
 
 # ---------------------------------------------------------------------
@@ -118,19 +120,25 @@ class TestSleepMenu:
 class TestRoomExpiry:
     def test_room_is_consumed_by_sleep(self):
         st = make_state(step=19, has_room_tonight=True)
-        execute_action(Action("sleep", "Sleep"), st)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st,
+        )
         assert st["hidden"]["has_room_tonight"] is False
 
     def test_bedroll_survives_sleep(self):
         st = make_state(step=19, inventory=[{"name": "bedroll", "count": 1}])
-        execute_action(Action("sleep", "Sleep"), st)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st,
+        )
         assert {"name": "bedroll", "count": 1} in st["visible"]["inventory"]
 
     def test_no_bedroll_no_room_after_room_night(self):
         st = make_state(step=19, has_room_tonight=True)
-        execute_action(Action("sleep", "Sleep"), st)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st,
+        )
         st["hidden"]["step"] = 19
-        assert "sleep" not in keys(st)
+        assert "write_diary_and_go_sleep" not in keys(st)
 
     def test_forced_sleep_does_not_need_a_bed(self):
         # §5: at step 20 the day ends regardless (main.run_turn).

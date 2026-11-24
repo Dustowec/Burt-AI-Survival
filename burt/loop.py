@@ -34,6 +34,7 @@ from burt import reputation
 from burt import loot
 from burt import search as search_mod
 from burt import items
+from burt import hands
 from burt import map as map_mod
 from burt import economy
 from burt import progression
@@ -153,6 +154,10 @@ INVALID_CHOICE_KICK = (
     "Think again and pick a valid action from the menu."
 )
 
+# §30 updated: an NPC refuses to hear the same action more than twice.
+DIALOG_SPAM_LIMIT = 3
+DIALOG_SPAM_TEXT = "Shut up, kid! I don't have time for this!"
+
 # §9/§16: replica keys of spawned non-role NPCs mapped to a reputation role.
 # "mage_event" teaches elements (§9) but reputation is tracked per §16 role.
 _REP_ROLE_ALIAS = {
@@ -173,7 +178,9 @@ _ACTION_SYNONYMS = {
     "search": ["search", "rummage", "look for", "find", "scavenge"],
     "eat_food": ["eat", "consume bread", "take the bread", "munch"],
     "drink_water": ["drink", "take water"],
-    "sleep": ["sleep", "rest", "close my eyes"],
+    "write_diary_and_go_sleep": [
+        "sleep", "go to sleep", "write diary", "rest", "close my eyes",
+    ],
     "inventory": ["inventory", "check inventory", "my things",
                   "my belongings", "what do i carry"],
     "status": ["status", "check my state", "how do i feel",
@@ -219,6 +226,12 @@ def build_menu(visible: dict, state: dict, *,
                     label=f"Approach the {role_key}",
                 ))
                 continue
+            # §35 updated: a trader who was pestered without money
+            # refuses to talk until the next day.
+            if trade.is_dialog_blocked(
+                hidden, _rep_role(role_key), hidden.get("day", 1),
+            ):
+                continue
             if not faith.can_talk_to(state, role_key):
                 continue
             talk_actions.append(
@@ -258,31 +271,82 @@ def build_menu(visible: dict, state: dict, *,
 
     step = hidden.get("step", 0)
     if _sleep_available(visible, hidden):
-        actions.append(Action(key="sleep", label="Sleep"))
-        if step >= sleep_mod.SLEEP_AVAILABLE_FROM:
-            actions.append(Action(
-                key="write_diary_and_go_sleep",
-                label="Write diary and go to sleep",
-            ))
+        actions.append(Action(
+            key="write_diary_and_go_sleep",
+            label="Write diary and go to sleep",
+        ))
 
-    inventory = visible.get("inventory", [])
-    has_food = False
-    has_water = False
-    for item in inventory:
-        name = item.get("name", "").lower()
-        if items.is_food(name):
-            has_food = True
-        if name in ("water", "waterskin", "large_waterskin"):
-            has_water = True
-    if has_food:
+    # §30 updated: food / water are picked up from the hand slot when
+    # possible, otherwise automatically taken from the backpack.
+    if hands.first_food_name(visible):
         actions.append(Action(key="eat_food", label="Eat food"))
-    if has_water:
+    if hands.first_water_name(visible):
         actions.append(Action(key="drink_water", label="Drink water"))
+
+    actions.extend(_hand_menu_actions(visible))
 
     actions.extend(talk_actions)
     return _append_tools(
         actions, ("inventory", "status", "remember", "diary", "map"),
     )
+
+
+def _hand_menu_actions(visible: dict) -> list[Action]:
+    """Equip / unequip actions for the [HANDS] slots.
+
+    Only real weapons and auxiliary items are offered, so junk loot does
+    not bloat the menu. Already-equipped items are skipped.
+    """
+    actions: list[Action] = []
+    hands_map = visible.get("hands")
+    if not isinstance(hands_map, dict):
+        return actions
+
+    equipped = {
+        "weapon": hands.hand_name(visible, hands.WEAPON_SLOT),
+        "item": hands.hand_name(visible, hands.ITEM_SLOT),
+    }
+
+    seen: set[str] = set()
+    for entry in visible.get("inventory") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = (entry.get("name") or "").lower()
+        try:
+            count = int(entry.get("count", 0))
+        except (TypeError, ValueError):
+            continue
+        if count <= 0 or not name or name in seen:
+            continue
+        seen.add(name)
+
+        if hands.is_weapon_item(name):
+            if equipped["weapon"] == name:
+                continue
+            label = f"Equip {_display_name(name)}"
+        elif hands.is_aux_item(name):
+            if equipped["item"] == name:
+                continue
+            label = f"Take {_display_name(name)} in hand"
+        else:
+            continue
+        actions.append(Action(key=f"equip_{name}", label=label, cost_free=True))
+
+    weapon = equipped["weapon"]
+    if weapon:
+        actions.append(Action(
+            key=hands.UNEQUIP_WEAPON,
+            label=f"Put away {_display_name(weapon)}",
+            cost_free=True,
+        ))
+    item = equipped["item"]
+    if item:
+        actions.append(Action(
+            key=hands.UNEQUIP_ITEM,
+            label=f"Stow {_display_name(item)}",
+            cost_free=True,
+        ))
+    return actions
 
 
 def _build_dialog_menu(visible: dict, state: dict,
@@ -805,6 +869,96 @@ def format_map(state: dict) -> str:
     return map_mod.render_ascii(state)
 
 
+def _execute_equip(action: Action, state: dict) -> ActionResult:
+    """§30 updated: move an item between backpack and [HANDS].
+
+    Free action: does not advance the step and does not tick effects.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+    if hidden.get("current_mode") == "combat":
+        return error_result("cannot change gear in combat")
+
+    hands.ensure_hands(visible)
+    key = action.key
+
+    if key == hands.UNEQUIP_WEAPON:
+        if not hands.unequip(visible, hands.WEAPON_SLOT):
+            return error_result("nothing in the weapon hand")
+        return ActionResult(events=[
+            "You put the weapon away.",
+            sensory.format_sensory_report(visible),
+        ])
+
+    if key == hands.UNEQUIP_ITEM:
+        if not hands.unequip(visible, hands.ITEM_SLOT):
+            return error_result("nothing in the off hand")
+        return ActionResult(events=[
+            "You stow the item in your backpack.",
+            sensory.format_sensory_report(visible),
+        ])
+
+    name = hands.equip_target_name(key)
+    if name is None:
+        return error_result(f"unknown gear action: {key}")
+    if not hands.equip(visible, name):
+        return error_result(f"cannot take {name!r} in hand")
+
+    display = _display_name(name)
+    if hands.is_weapon_item(name):
+        text = f"You take the {display} in hand."
+    else:
+        text = f"You keep the {display} ready."
+    return ActionResult(events=[
+        text,
+        sensory.format_sensory_report(visible),
+    ])
+
+
+def _prepare_hand_item(visible: dict, predicate) -> str | None:
+    """Pick the stack to use, moving it into the [HANDS] slot 2 if needed.
+
+    Order: an already-ready matching item in hand, then the first match in
+    the backpack (which is automatically equipped).
+    """
+    hands.ensure_hands(visible)
+    hands.sync(visible)
+    current = hands.hand_name(visible, hands.ITEM_SLOT)
+    if current and predicate(current):
+        return current
+    target = None
+    for entry in visible.get("inventory") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = (entry.get("name") or "").lower()
+        try:
+            count = int(entry.get("count", 0))
+        except (TypeError, ValueError):
+            continue
+        if count > 0 and name and predicate(name):
+            target = name
+            break
+    if target is None:
+        return None
+    hands.equip(visible, target)
+    return target
+
+
+def _remove_one(visible: dict, name: str) -> None:
+    """Remove one copy of `name` from the inventory stack."""
+    key = (name or "").lower()
+    inventory = visible.get("inventory") or []
+    for i, entry in enumerate(inventory):
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("name") or "").lower() != key:
+            continue
+        entry["count"] = int(entry.get("count", 0)) - 1
+        if entry["count"] <= 0:
+            inventory.pop(i)
+        return
+
+
 def _execute_tool(action: Action, state: dict) -> ActionResult | None:
     """§26: free tools. Return None for a normal (non-tool) action."""
     key = action.key
@@ -840,6 +994,10 @@ def _execute_action_impl(action: Action, state: dict, rng=None,
     tool_result = _execute_tool(action, state)
     if tool_result is not None:
         return tool_result
+
+    # ---- §30 updated: gear actions (free, no step tick) ----
+    if hands.is_equip_action(action.key):
+        return _execute_equip(action, state)
 
     # ---- dialog mode routing ----
     if mode == "dialog":
@@ -1124,11 +1282,14 @@ def _execute_action_impl(action: Action, state: dict, rng=None,
         events.append(sensory.format_sensory_report(visible))
         return ActionResult(events=events, search_result=category.result)
 
-    if action.key in ("sleep", "write_diary_and_go_sleep"):
+    if action.key == "write_diary_and_go_sleep":
         _apply_sleep_state(state)
         return ActionResult(events=["You sleep.", sensory.format_sensory_report(visible)])
 
     if action.key == "eat_food":
+        target = _prepare_hand_item(visible, hands.is_food_item)
+        if target is None:
+            return error_result("no food to eat")
         eat, new_hp = hunger.apply_eat(
             visible.get("eat", False),
             visible.get("hp", 10),
@@ -1137,28 +1298,19 @@ def _execute_action_impl(action: Action, state: dict, rng=None,
         visible["eat"] = eat
         visible["hp"] = new_hp
         hidden["hp_raw"] = new_hp
-        inventory = visible.get("inventory", [])
-        for i, item in enumerate(inventory):
-            name = item.get("name", "").lower()
-            if items.is_food(name):
-                item["count"] -= 1
-                if item["count"] <= 0:
-                    inventory.pop(i)
-                break
+        _remove_one(visible, target)
+        hands.sync(visible)
         hidden["step"] = hidden.get("step", 0) + 1
         return ActionResult(
             events=["You eat.", sensory.format_sensory_report(visible)],
         )
 
     if action.key == "drink_water":
-        inventory = visible.get("inventory", [])
-        for i, item in enumerate(inventory):
-            name = item.get("name", "").lower()
-            if name in ("water", "waterskin", "large_waterskin"):
-                item["count"] -= 1
-                if item["count"] <= 0:
-                    inventory.pop(i)
-                break
+        target = _prepare_hand_item(visible, hands.is_water_item)
+        if target is None:
+            return error_result("no water to drink")
+        _remove_one(visible, target)
+        hands.sync(visible)
         hidden["step"] = hidden.get("step", 0) + 1
         return ActionResult(
             events=["You drink some water.", sensory.format_sensory_report(visible)],
@@ -1191,6 +1343,8 @@ def execute_action(action: Action, state: dict, rng=None,
     if result.skip_effect_tick:
         return result
     if action.key in TOOL_KEYS:
+        return result
+    if hands.is_equip_action(action.key):
         return result
 
     if hidden.get("step", 0) > step_before:
@@ -1406,7 +1560,11 @@ def _build_burt_stats(visible: dict, hidden: dict) -> BurtStats:
 
     # §8: skill levels drive weapon choice, damage range and die rolls.
     levels = skills.level_map(hidden)
-    choice = weapons.select_weapon(visible.get("inventory") or [], levels)
+    # §30 updated: only the weapon in the [HANDS] slot 1 is used; without
+    # the hand field (old saves / fixtures) fall back to the inventory.
+    choice = weapons.select_weapon(
+        hands.hand_weapon_entries(visible), levels,
+    )
     weapon_level = int(levels.get(choice.skill, 0)) if choice.skill else 0
     magic_level = int(levels.get("Magic", 0))
     cast_min, cast_max = weapons.magic_damage_range(magic_level)
@@ -1434,19 +1592,14 @@ def _sleep_available(visible: dict, hidden: dict) -> bool:
     """§5: sleep needs a bedroll or a paid room, and not combat.
 
     The `sleep.py` core decides; this wrapper only reads the state.
-    Critical HP keeps a safety valve below the step threshold (deviation
-    documented in known_issues #13: a dying Burt may sleep without a bed).
+    The old critical-HP safety valve is gone: ordinary sleep no longer
+    exists, only write_diary_and_go_sleep and the forced sleep at step 20.
     """
     has_bedroll = economy.has_item(visible, "bedroll")
     has_room = bool(hidden.get("has_room_tonight"))
     in_combat = hidden.get("current_mode") == "combat"
     step = hidden.get("step", 0)
-    if sleep_mod.is_sleep_available(step, in_combat, has_bedroll, has_room):
-        return True
-
-    hp = visible.get("hp", 10)
-    hp_max = visible.get("hp_max", 10)
-    return hp_max > 0 and hp * 100 < hp_max * 25
+    return sleep_mod.is_sleep_available(step, in_combat, has_bedroll, has_room)
 
 
 def should_sleep(visible: dict, state: dict) -> bool:
@@ -1484,6 +1637,13 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
     if not faith.can_talk_to(state, role_key):
         return error_result(f"the {role_key} will not talk to you")
 
+    # §35 updated: the trader refuses to talk until the next day after
+    # the third failed purchase in a row.
+    if trade.is_dialog_blocked(
+        hidden, _rep_role(role_key), hidden.get("day", 1),
+    ):
+        return error_result(f"the {role_key} will not talk to you today")
+
     # §13: the preacher is an event, not a role. He has one intro and
     # one dice reply; no reputation, no quests, no training.
     if role_key == events.PREACHER_KEY:
@@ -1501,6 +1661,8 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
             "quest_state": "none",
             "rep_applied": True,
             "preacher_done": False,
+            "dialog_last_action": None,
+            "dialog_same_count": 0,
         }
         hidden["last_action"] = action.key
         hidden["same_action_count"] = 1
@@ -1524,6 +1686,8 @@ def _execute_talk_to(action: Action, state: dict, role_key: str,
         "bonus_used": False,
         "quest_state": quests.quest_state_for_role(rep_role, state),
         "rep_applied": False,
+        "dialog_last_action": None,
+        "dialog_same_count": 0,
     }
     # §35: the location price modifier is rolled once per node — on the
     # first meeting with a trader there. Rolling it here (not on arrival)
@@ -1621,6 +1785,35 @@ def _execute_preacher_reply(
     return ActionResult(events=result_events)
 
 
+def _break_dialog_for_spam(state: dict) -> ActionResult:
+    """§30 updated: the NPC loses patience and the dialogue is cut short.
+
+    Closes the dialogue exactly like dialog_exit, costs 1 HP and pushes
+    the refusal text into the next prompt as an inject.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+
+    result = _finish_dialog(state)
+
+    hp_max = visible.get("hp_max", 10)
+    hp = max(0, int(visible.get("hp", 0)) - 1)
+    visible["hp"] = hp
+    hidden["hp_raw"] = hp
+    hidden["last_action"] = "dialog_spam"
+    hidden["same_action_count"] = 1
+
+    result.events = [
+        DIALOG_SPAM_TEXT,
+        f"HP: {hp}/{hp_max}",
+        sensory.format_sensory_report(visible),
+    ]
+    result.inject = DIALOG_SPAM_TEXT
+    result.skip_effect_tick = False
+    result.game_over = hp <= 0
+    return result
+
+
 def _execute_dialog_action(action: Action, state: dict, rng,
                            engine: DialogueEngine | None) -> ActionResult:
     """Handle dialog actions: dialog_<cat> or dialog_exit."""
@@ -1629,6 +1822,31 @@ def _execute_dialog_action(action: Action, state: dict, rng,
     ds = hidden.get("dialog_state")
     if ds is None:
         return error_result("no active dialog")
+
+    # §30 updated: three identical dialog actions in a row end the talk.
+    # dialog_exit and shop transactions are never counted, so the anger
+    # lock cannot be bypassed and buying goods stays possible.
+    key = action.key
+    counted = (
+        key.startswith("dialog_")
+        and key != "dialog_exit"
+        and not key.startswith("dialog_buy_")
+        and not key.startswith("dialog_sell_")
+        and key != "dialog_trade_close"
+    )
+    if counted:
+        if ds.get("dialog_last_action") == key:
+            count = int(ds.get("dialog_same_count", 0)) + 1
+        else:
+            count = 1
+        ds["dialog_last_action"] = key
+        ds["dialog_same_count"] = count
+        if count >= DIALOG_SPAM_LIMIT:
+            return _break_dialog_for_spam(state)
+    else:
+        # Excluded actions (exit / shop) break the consecutive streak.
+        ds["dialog_last_action"] = key
+        ds["dialog_same_count"] = 0
 
     # dialog_exit
     if action.key == "dialog_exit":
@@ -1814,6 +2032,29 @@ def _open_shop(state: dict, engine: DialogueEngine, rng) -> ActionResult:
     return ActionResult(events=events)
 
 
+def _break_trade_no_money(state: dict) -> ActionResult:
+    """§35 updated: cut the dialogue after the 3rd failed purchase.
+
+    No HP penalty: the trader simply refuses to deal with Burt today.
+    The phrase is injected into the next prompt as the first line.
+    """
+    hidden = state.setdefault("hidden", {})
+    visible = state.setdefault("visible", {})
+
+    result = _finish_dialog(state)
+    hidden["last_action"] = "trade_no_money_block"
+    hidden["same_action_count"] = 1
+
+    result.events = [
+        trade.TRADE_NO_MONEY_TEXT,
+        sensory.format_sensory_report(visible),
+    ]
+    result.inject = trade.TRADE_NO_MONEY_TEXT
+    result.skip_effect_tick = False
+    result.game_over = False
+    return result
+
+
 def _execute_trade_buy(item: str, state: dict) -> ActionResult:
     """§35: Burt buys one item from the open shop."""
     hidden = state.setdefault("hidden", {})
@@ -1833,6 +2074,10 @@ def _execute_trade_buy(item: str, state: dict) -> ActionResult:
     price = economy.buy_price(item, **_price_context(state, ds))
     coin = int(visible.get("wallet", {}).get("coin", 0))
     if price > coin:
+        # §35 updated: per-trader counter; the 3rd failed purchase in a
+        # day cuts the dialogue and blocks this trader until tomorrow.
+        if trade.record_failed_buy(hidden, role, hidden.get("day", 1)):
+            return _break_trade_no_money(state)
         return error_result(
             f"not enough coin for {item}: {price} needed, {coin} in purse"
         )
@@ -1872,6 +2117,7 @@ def _execute_trade_sell(item: str, state: dict) -> ActionResult:
 
     role = _shop_role(ds)
     economy.remove_item(visible, item, 1)
+    hands.sync(visible)
     visible.setdefault("wallet", {})["coin"] = (
         int(visible.get("wallet", {}).get("coin", 0)) + price
     )
@@ -2632,6 +2878,12 @@ def _arrive_at_node(
     # §9: the wandering mage may join the fixed role in temple / dungeon.
     # Runs last: its dice never shift the movement or NPC spawn order.
     npc_spawn.maybe_add_mage(hidden, loc_type, node_id, rng)
+
+    # §32 updated: the veteran appears in the village only, rarely and
+    # never more than once per 10 game days.
+    npc_spawn.maybe_add_veteran(
+        hidden, loc_type, node_id, hidden.get("day", 1), rng,
+    )
 
     state = {"hidden": hidden, "visible": visible}
 

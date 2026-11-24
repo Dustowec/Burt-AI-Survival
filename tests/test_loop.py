@@ -95,23 +95,29 @@ class TestBuildMenuExploring:
         st = make_state()
         assert "search" in _keys(build_menu(st["visible"], st))
 
-    def test_sleep_absent_at_step_0(self):
+    def test_no_sleep_action_at_step_0(self):
         st = make_state()
         st["hidden"]["step"] = 0
-        assert "sleep" not in _keys(build_menu(st["visible"], st))
+        keys = _keys(build_menu(st["visible"], st))
+        assert "sleep" not in keys
+        assert "write_diary_and_go_sleep" not in keys
 
-    def test_sleep_present_at_step_19(self):
+    def test_write_diary_present_at_step_19(self):
         st = make_state()
         st["hidden"]["step"] = 19
         # §5: sleep needs a bedroll or a paid room.
         st["visible"]["inventory"].append({"name": "bedroll", "count": 1})
-        assert "sleep" in _keys(build_menu(st["visible"], st))
+        keys = _keys(build_menu(st["visible"], st))
+        assert "sleep" not in keys
+        assert "write_diary_and_go_sleep" in keys
 
-    def test_sleep_present_at_critical_hp(self):
+    def test_no_sleep_at_critical_hp(self):
         st = make_state()
         st["visible"]["hp"] = 2
         st["visible"]["hp_max"] = 10
-        assert "sleep" in _keys(build_menu(st["visible"], st))
+        keys = _keys(build_menu(st["visible"], st))
+        assert "sleep" not in keys
+        assert "write_diary_and_go_sleep" not in keys
 
     def test_eat_food_present_with_bread(self):
         st = make_state()
@@ -295,7 +301,9 @@ class TestExecuteActionExploring:
         st["visible"]["mp"] = 1
         st["hidden"]["hp_raw"] = 3
         st["hidden"]["mp_raw"] = 1
-        result = execute_action(Action("sleep", "Sleep"), st)
+        result = execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st,
+        )
         assert st["visible"]["hp"] == st["visible"]["hp_max"]
         assert st["visible"]["mp"] == st["visible"]["mp_max"]
         assert st["hidden"]["hp_raw"] == st["visible"]["hp_max"]
@@ -307,7 +315,9 @@ class TestExecuteActionExploring:
     def test_sleep_resets_effects(self):
         st = make_state()
         st["visible"]["effects"] = ["blessed", "cursed"]
-        execute_action(Action("sleep", "Sleep"), st)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st,
+        )
         assert st["visible"]["effects"] == []
 
     def test_unknown_action_returns_error(self):

@@ -280,45 +280,41 @@ class TestInventorySection:
         return out[idx:].split("[WALLET]")[0]
 
     def test_empty_shows_pusto(self):
-        out = sensory.format_sensory_report(_visible(inventory=[]))
+        out = sensory.format_sensory_report(
+            _visible(inventory=[], hands={"weapon": None, "item": None})
+        )
         assert "empty" in self._chunk(out)
 
-    def test_single_item(self):
-        out = sensory.format_sensory_report(
-            _visible(inventory=[{"name": "sword", "count": 1}])
-        )
-        assert "Sword — 1pcs" in out
+    def test_weapon_slot(self):
+        out = sensory.format_sensory_report(_visible(
+            inventory=[{"name": "sword", "count": 1}],
+            hands={"weapon": "sword", "item": None},
+        ))
+        assert "[weapon] Sword — 1pcs" in out
 
-    def test_two_items(self):
-        out = sensory.format_sensory_report(
-            _visible(inventory=[
-                {"name": "sword", "count": 1},
-                {"name": "bread", "count": 2},
-            ])
-        )
-        assert "Sword — 1pcs" in out
-        assert "Bread — 2pcs" in out
+    def test_item_slot(self):
+        out = sensory.format_sensory_report(_visible(
+            inventory=[{"name": "bread", "count": 2}],
+            hands={"weapon": None, "item": "bread"},
+        ))
+        assert "[item] Bread — 2pcs" in out
 
-    def test_item_capitalized(self):
-        out = sensory.format_sensory_report(
-            _visible(inventory=[{"name": "sword", "count": 1}])
-        )
-        assert "Sword" in out
+    def test_backpack_is_hidden_from_base_report(self):
+        out = sensory.format_sensory_report(_visible(
+            inventory=[{"name": "mushrooms", "count": 3}],
+            hands={"weapon": None, "item": None},
+        ))
+        assert "mushrooms" not in out.lower()
+        assert "empty" in self._chunk(out)
 
-    def test_only_first_letter_uppercase(self):
-        out = sensory.format_sensory_report(
-            _visible(inventory=[{"name": "waterskin", "count": 1}])
-        )
-        assert "waterskin" in out.lower()
+    def test_backpack_is_visible_in_inventory_tool(self):
+        out = sensory.format_inventory(_visible(
+            inventory=[{"name": "mushrooms", "count": 3}],
+            hands={"weapon": None, "item": None},
+        ))
+        assert "[BACKPACK]" in out
+        assert "Mushrooms — 3pcs" in out
 
-    def test_order_preserved(self):
-        out = sensory.format_sensory_report(
-            _visible(inventory=[
-                {"name": "sword", "count": 1},
-                {"name": "bread", "count": 2},
-            ])
-        )
-        assert out.index("Sword") < out.index("Bread")
 
 
 # ---------------------------------------------------------------------
@@ -408,6 +404,7 @@ class TestFullReport:
                 {"name": "sword", "count": 1},
                 {"name": "bread", "count": 2},
             ],
+            hands={"weapon": "sword", "item": "bread"},
             wallet={"coin": 35},
             skills_visible=[
                 {"name": "Владение дубиной", "level": 1, "max": 10},
@@ -425,8 +422,8 @@ class TestFullReport:
             "Exits: north, east, south\n"
             "\n"
             "[HANDS]\n"
-            "Sword — 1pcs\n"
-            "Bread — 2pcs\n"
+            "[weapon] Sword — 1pcs\n"
+            "[item] Bread — 2pcs\n"
             "\n"
             "[WALLET]\n"
             "35 coin\n"

@@ -51,7 +51,10 @@ ROLE_SPAWN: dict[str, tuple[str, ...]] = {
     ),
     "river": ("fisherman", "merchant"),
     "road": ("merchant",),
-    "forest": ("veteran",),
+    # §32 updated (23.11.2026): the veteran lives in the village only and
+    # is spawned by maybe_add_veteran (rare roll + 10-day cooldown), so
+    # the forest pool is intentionally empty.
+    "forest": (),
     "temple": ("cleric",),
     "dungeon": ("necromancer",),
 }
@@ -71,6 +74,13 @@ RARE_ROLL_MIN = 5
 MAGE_ROLE = "mage_event"
 MAGE_LOCATIONS: frozenset[str] = frozenset({"temple", "dungeon"})
 MAGE_SPAWN_MIN = 5
+
+# §32 updated (23.11.2026): the veteran spawns in the village only, on a
+# rare roll, and never more often than once per 10 game days.
+VETERAN_ROLE = "veteran"
+VETERAN_LOCATION = "village"
+VETERAN_SPAWN_MIN = 5
+VETERAN_SPAWN_COOLDOWN_DAYS = 10
 
 
 # ---------------------------------------------------------------------
@@ -232,6 +242,55 @@ def maybe_add_mage(
 def clear_npcs(hidden: dict) -> None:
     """Drop the working list (used on new life / world reset)."""
     hidden["npcs_here"] = []
+
+
+def maybe_add_veteran(
+    hidden: dict,
+    location_type: str,
+    node_id: str,
+    day: int,
+    rng: Rng,
+) -> bool:
+    """Add the veteran to a village node. True when he appears.
+
+    Rules (updated 23.11.2026):
+      - village only;
+      - d6 >= 5;
+      - never more often than once per VETERAN_SPAWN_COOLDOWN_DAYS
+        game days (last spawn is tracked in
+        hidden["veteran_last_spawn_day"]);
+      - while the cooldown is active the die is NOT rolled, so the
+        movement / encounter dice order is untouched.
+
+    Runs AFTER ensure_npcs, so the village roles are already in place.
+    """
+    if location_type != VETERAN_LOCATION:
+        return False
+
+    last_day = hidden.get("veteran_last_spawn_day", 0)
+    if not isinstance(last_day, int) or isinstance(last_day, bool):
+        last_day = 0
+    if day - last_day < VETERAN_SPAWN_COOLDOWN_DAYS:
+        return False
+
+    roles = list(hidden.get("npcs_here") or [])
+    if VETERAN_ROLE in roles:
+        return False
+
+    roll = rng()
+    _check_d6(roll, "roll_veteran")
+    if roll < VETERAN_SPAWN_MIN:
+        return False
+
+    roles.append(VETERAN_ROLE)
+    hidden["npcs_here"] = roles
+
+    cache = hidden.setdefault("npcs_by_node", {})
+    if isinstance(cache, dict):
+        cache[node_id] = list(roles)
+
+    hidden["veteran_last_spawn_day"] = day
+    return True
 
 
 def reset_cache(hidden: dict) -> None:

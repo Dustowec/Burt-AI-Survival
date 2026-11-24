@@ -59,7 +59,9 @@ class TestAllPaths:
     def test_voluntary_sleep(self):
         st = _fresh(day=2)
         st["hidden"]["step"] = 19
-        loop.execute_action(Action("sleep", "Sleep"), st, rng=lambda: 4)
+        loop.execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st, rng=lambda: 4,
+        )
         assert st["hidden"]["day"] == 3
         assert st["visible"]["date"] == "3 day"
 

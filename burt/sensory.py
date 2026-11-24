@@ -20,6 +20,7 @@ import config
 from burt.combat import CombatState, BurtStats, EnemyInstance
 from burt.bestiary import ENEMIES
 from burt import faith
+from burt import hands
 from burt import progression
 from burt.state import canonical_date
 
@@ -169,14 +170,29 @@ def _format_location(visible: dict) -> str:
 # ---------------------------------------------------------------------
 
 def format_inventory(visible: dict, header: str = "[INVENTORY]") -> str:
-    """§26: full item list for the inventory tool."""
-    lines = [header]
-    items = visible.get("inventory") or []
+    """§26: full item list for the inventory tool.
 
-    if not items:
+    Shows the two hand slots and the hidden backpack separately, so the
+    model has to use the tool to see everything it carries.
+    """
+    lines = [header]
+
+    hand_entries, backpack = hands.split_inventory(visible)
+
+    lines.append("[HANDS]")
+    if not hand_entries:
         lines.append("empty")
     else:
-        for it in items:
+        for slot, name, count in hand_entries:
+            display = _capitalize_first(name)
+            lines.append(f"[{slot}] {display} — {count}pcs")
+
+    lines.append("")
+    lines.append("[BACKPACK]")
+    if not backpack:
+        lines.append("empty")
+    else:
+        for it in backpack:
             name = _capitalize_first(it["name"])
             lines.append(f"{name} — {it['count']}pcs")
 
@@ -201,7 +217,16 @@ def format_status(visible: dict) -> str:
 
 
 def _format_inventory(visible: dict) -> str:
-    return format_inventory(visible, "[HANDS]")
+    """[HANDS]: at most the equipped weapon and one auxiliary item."""
+    lines = ["[HANDS]"]
+    hand_entries, _ = hands.split_inventory(visible)
+    if not hand_entries:
+        lines.append("empty")
+        return "\n".join(lines)
+    for slot, name, count in hand_entries:
+        display = _capitalize_first(name)
+        lines.append(f"[{slot}] {display} — {count}pcs")
+    return "\n".join(lines)
 
 
 def _capitalize_first(s: str) -> str:

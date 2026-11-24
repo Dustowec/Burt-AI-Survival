@@ -276,11 +276,9 @@ class TestStateMutationConsistency:
         # §5: sleep requires a bedroll or a paid room.
         st["visible"]["inventory"].append({"name": "bedroll", "count": 1})
         menu = build_menu(st["visible"], st)
-        sleep_action = None
-        for a in menu:
-            if a.key == "sleep":
-                sleep_action = a
-                break
+        sleep_action = next(
+            (a for a in menu if a.key == "write_diary_and_go_sleep"), None,
+        )
         assert sleep_action is not None
         execute_action(sleep_action, st)
         assert st["visible"]["hp"] == st["visible"]["hp_max"]

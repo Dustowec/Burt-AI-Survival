@@ -54,14 +54,19 @@ class TestSleepParity:
         voluntary = _state()
         forced = copy.deepcopy(voluntary)
 
-        execute_action(Action("sleep", "Sleep"), voluntary, rng=lambda: 4)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"),
+            voluntary, rng=lambda: 4,
+        )
         main._do_sleep(forced)
 
         assert _snapshot(voluntary) == _snapshot(forced)
 
     def test_common_effects(self):
         st = _state()
-        execute_action(Action("sleep", "Sleep"), st, rng=lambda: 4)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st, rng=lambda: 4,
+        )
 
         assert st["visible"]["hp"] == st["visible"]["hp_max"]
         assert st["visible"]["mp"] == st["visible"]["mp_max"]
@@ -79,12 +84,16 @@ class TestSleepParity:
 
     def test_encounter_does_not_survive_sleep(self):
         st = _state()
-        execute_action(Action("sleep", "Sleep"), st, rng=lambda: 4)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st, rng=lambda: 4,
+        )
         assert st["hidden"]["pending_encounter"] is None
         assert st["hidden"]["encounter_revealed"] is False
 
     def test_resurrection_mercy_renewed(self):
         st = _state()
         assert st["hidden"]["resurrection_used_today"] is True
-        execute_action(Action("sleep", "Sleep"), st, rng=lambda: 4)
+        execute_action(
+            Action("write_diary_and_go_sleep", "Diary+sleep"), st, rng=lambda: 4,
+        )
         assert st["hidden"]["resurrection_used_today"] is False

@@ -96,8 +96,11 @@ class TestBurtSystemPromptP3Rules:
         assert "only choose an action present in the menu" in prompts.BURT_SYSTEM_PROMPT.lower()
 
     def test_no_phantom_inventory(self):
-        # Model must not invent items (like swords) if not in HANDS
-        assert "if an item is not in [hands], you do not have it" in prompts.BURT_SYSTEM_PROMPT.lower()
+        # The model must understand that only [HANDS] is usable directly;
+        # the rest of the inventory is a backpack seen via the tool.
+        text = prompts.BURT_SYSTEM_PROMPT.lower()
+        assert "[hands] shows only what you hold right now" in text
+        assert "everything else is in your backpack" in text
 
     def test_combat_mode_rule(self):
         # Spec 23/26: in combat the menu is attack / block / flee / cast
@@ -106,7 +109,7 @@ class TestBurtSystemPromptP3Rules:
         text = prompts.BURT_SYSTEM_PROMPT.lower()
         assert "if [combat] is present" in text
         assert "choose only from the menu" in text
-        assert "in combat you cannot eat, drink, walk or search" in text
+        assert "in combat you cannot eat, drink, walk, search" in text
 
     def test_gated_cast_is_not_promised(self):
         # Spec 9: cast is offered only when staff + spell + teacher are all
@@ -122,38 +125,35 @@ class TestSpiritPrompt:
     def test_starts_with_you_died(self):
         assert prompts.SPIRIT_PROMPT.startswith("You died.")
 
-    def test_world_erased(self):
-        assert "The world was wiped away." in prompts.SPIRIT_PROMPT
+    def test_stats_at_death(self):
+        assert "Stats at death:" in prompts.SPIRIT_PROMPT
 
-    def test_write_it_voice_of_burt(self):
-        assert "In Burt's voice." in prompts.SPIRIT_PROMPT
+    def test_next_clone_reads_note(self):
+        assert "Your next clone will read this note" in prompts.SPIRIT_PROMPT
 
-    def test_not_assistant(self):
-        assert "Not an assistant." in prompts.SPIRIT_PROMPT
+    def test_factual_survival_debrief(self):
+        assert "strictly factual survival debrief" in prompts.SPIRIT_PROMPT
 
-    def test_has_skeleton(self):
-        assert "I lived N days" in prompts.SPIRIT_PROMPT
+    def test_no_poetry_or_metaphors(self):
+        assert "No poetry, no metaphors" in prompts.SPIRIT_PROMPT
 
-    def test_skeleton_says_not_template(self):
-        assert "This is not a template." in prompts.SPIRIT_PROMPT
+    def test_exact_game_terms(self):
+        assert "Use exact game terms" in prompts.SPIRIT_PROMPT
 
-    def test_length_3_6_sentences(self):
-        assert "3–6 sentences" in prompts.SPIRIT_PROMPT
+    def test_three_lines_max(self):
+        assert "3 lines max" in prompts.SPIRIT_PROMPT
 
-    def test_first_person_past(self):
-        assert "first person, past tense" in prompts.SPIRIT_PROMPT
+    def test_has_summary_line(self):
+        assert "SUMMARY: Died on Day" in prompts.SPIRIT_PROMPT
 
-    def test_no_numbers_mechanics(self):
-        assert "no numbers, no mechanics" in prompts.SPIRIT_PROMPT
+    def test_has_good_bad_testament(self):
+        text = prompts.SPIRIT_PROMPT
+        assert "GOOD:" in text
+        assert "BAD:" in text
+        assert "TESTAMENT:" in text
 
-    def test_no_nado_bylo(self):
-        assert 'no "should have"' in prompts.SPIRIT_PROMPT
-
-    def test_not_epitaph_is_conclusion(self):
-        assert "this is not an epitaph. It is a conclusion." in prompts.SPIRIT_PROMPT
-
-    def test_forgotten(self):
-        assert "you are forgotten" in prompts.SPIRIT_PROMPT
+    def test_testament_is_for_future_generations(self):
+        assert "Guidance for future generations" in prompts.SPIRIT_PROMPT
 
 
 # ---------------------------------------------------------------------
@@ -166,35 +166,35 @@ class TestDiaryPrompt:
             "You are Burt. You are going to sleep."
         )
 
-    def test_write_for_yourself(self):
-        assert "briefly, for yourself" in prompts.DIARY_PROMPT
+    def test_total_amnesia_after_sleep(self):
+        assert "total amnesia" in prompts.DIARY_PROMPT
 
-    def test_forget_tomorrow(self):
-        assert "remember nothing" in prompts.DIARY_PROMPT
+    def test_only_memory(self):
+        assert "ONLY memory" in prompts.DIARY_PROMPT
 
-    def test_length_3_5_sentences(self):
-        assert "3–5 sentences" in prompts.DIARY_PROMPT
+    def test_length_4_6_sentences(self):
+        assert "4–6 sentences" in prompts.DIARY_PROMPT
 
-    def test_first_person_past(self):
-        assert "first person, past tense" in prompts.DIARY_PROMPT
+    def test_first_person(self):
+        assert "first person" in prompts.DIARY_PROMPT
 
-    def test_what_did_understood_felt(self):
-        assert "what you did, what you understood, what you felt" \
-            in prompts.DIARY_PROMPT
+    def test_events_and_lessons(self):
+        assert "EVENTS & LESSONS:" in prompts.DIARY_PROMPT
 
-    def test_no_numbers(self):
-        assert "no numbers" in prompts.DIARY_PROMPT
+    def test_mandatory_quests(self):
+        assert "MANDATORY QUESTS:" in prompts.DIARY_PROMPT
 
-    def test_no_nado_bylo(self):
-        assert 'no "should have"' in prompts.DIARY_PROMPT
+    def test_tomorrows_plan(self):
+        assert "TOMORROW'S PLAN:" in prompts.DIARY_PROMPT
 
-    def test_no_philosophy(self):
-        assert "no philosophy" in prompts.DIARY_PROMPT
+    def test_reminds_to_check_inventory_and_scroll(self):
+        text = prompts.DIARY_PROMPT
+        assert "check inventory, quest scroll, and map" in text
 
-    def test_dry_tone(self):
-        assert "Tone — dry." in prompts.DIARY_PROMPT
+    def test_dry_pragmatic_tone(self):
+        assert "Dry, pragmatic tone" in prompts.DIARY_PROMPT
 
-    def test_ends_with_pishi(self):
+    def test_ends_with_write(self):
         assert prompts.DIARY_PROMPT.rstrip().endswith("Write.")
 
 

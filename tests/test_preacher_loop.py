@@ -337,7 +337,7 @@ class TestEffectLifecycle:
         events.apply_effect(
             st["hidden"], st["visible"], events.EFFECT_CURSED,
         )
-        execute_action(Action("sleep", "Sleep"), st)
+        execute_action(Action("write_diary_and_go_sleep", "Diary+sleep"), st)
         assert st["visible"]["effects"] == []
         assert st["hidden"]["effects_detail"] == []
         assert events.PREACHER_KEY not in st["hidden"]["npcs_here"]

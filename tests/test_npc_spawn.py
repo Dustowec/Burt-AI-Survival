@@ -51,8 +51,13 @@ class TestPools:
     def test_road_pool(self):
         assert set(npc_spawn.ROLE_SPAWN["road"]) == {"merchant"}
 
-    def test_forest_pool(self):
-        assert set(npc_spawn.ROLE_SPAWN["forest"]) == {"veteran"}
+    def test_forest_pool_is_empty(self):
+        assert npc_spawn.ROLE_SPAWN["forest"] == ()
+
+    def test_veteran_is_not_in_any_pool(self):
+        # The veteran is spawned only by maybe_add_veteran in the village.
+        for pool in npc_spawn.ROLE_SPAWN.values():
+            assert npc_spawn.VETERAN_ROLE not in pool
 
     def test_temple_always_cleric(self):
         assert npc_spawn.ROLE_SPAWN["temple"] == ("cleric",)

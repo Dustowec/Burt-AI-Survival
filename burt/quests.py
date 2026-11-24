@@ -23,6 +23,7 @@ from typing import Any, Optional
 
 from burt import dice
 from burt import faith
+from burt import hands
 
 
 # ---------------------------------------------------------------------
@@ -160,6 +161,7 @@ def _apply_deliver_items(state: dict, items: list[dict]) -> None:
                 if inv_item["count"] <= 0:
                     inventory.remove(inv_item)
                 break
+    hands.sync(visible)
 
 
 def _advance_chain(q: Quest, state: dict) -> None:

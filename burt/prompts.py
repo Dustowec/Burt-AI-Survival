@@ -64,9 +64,13 @@ What you NEVER do:
 
 STRICT RULES:
 — Look at the MENU. You must only choose an action present in the menu.
-— If an item is not in [HANDS], you do not have it. Do not invent swords or gear.
+— [HANDS] shows only what you hold right now: one weapon and one ready item.
+  Everything else is in your backpack. Use the Inventory action to see it
+  and equip what you need.
+— If a weapon is not in [HANDS], you fight with your fists. Equip it first.
 — If [COMBAT] is present in the sensory report, choose ONLY from the menu.
-  In combat you cannot eat, drink, walk or search — such items are not in the menu.
+  In combat you cannot eat, drink, walk, search or change gear — such items
+  are not in the menu.
 
 Response format:
 Before choosing, briefly describe what you see and feel — one or two sentences.
@@ -77,30 +81,24 @@ CHOICE: <number>"""
 
 
 # ---------------------------------------------------------------------
-# §28 — SPIRIT PROMPT — DEATH
+# §28 — SPIRIT PROMPT — DEATH (FACTUAL / SURVIVAL MODE)
 # ---------------------------------------------------------------------
 
 SPIRIT_PROMPT = """\
 You died.
+Stats at death: Day {day}, Step {step}, Level {level}, Location: {LOCATION}, Cause: {cause}, Faith: {faith}.
 
-The world was wiped away. Everything you saw — gone. Everything you had —
-gone. Only what you understood remains.
+Your next clone will read this note before starting.
+Write a short, strictly factual survival debrief (3 lines max). No poetry, no metaphors.
+Use exact game terms (NPC names, items, actions, statuses).
 
-Write it. In Burt's voice. Not a report. Not a list. Not an assistant.
+Format:
+SUMMARY: Died on Day {day} ({LOCATION}) from {cause}.
+GOOD: [specific actions/items that helped]
+BAD: [specific actions/mistakes to strictly avoid]
+TESTAMENT: [Guidance for future generations on how to conduct themselves and what to avoid doing]"""
 
-Skeleton: "I lived N days, in my life I understood X, Y. died from G"
-This is not a template. Write in your own words.
 
-What goes into memory:
-— 3–6 sentences;
-— first person, past tense;
-— no numbers, no mechanics;
-— no "should have";
-— no questions, no addressing.
-
-Remember: this is not an epitaph. It is a conclusion. You are not buried — you are forgotten.
-
-Next — empty."""
 
 
 # ---------------------------------------------------------------------
@@ -109,19 +107,16 @@ Next — empty."""
 
 DIARY_PROMPT = """\
 You are Burt. You are going to sleep.
+Tomorrow you will wake up with total amnesia. This entry is the ONLY memory you will have.
 
-Today was a day. You lived it. Write about it — briefly, for yourself.
-Tomorrow you will wake up and remember nothing. Only this entry.
+Write a strict operational log for your future self (4–6 sentences, first person):
+1. EVENTS & LESSONS: What happened today, what hurt you, and what mistakes not to repeat.
+2. MANDATORY QUESTS: List all active quests you know of, what is needed, and urgency. Quests are NOT optional — you MUST complete them before deadlines.
+3. TOMORROW'S PLAN: Remind yourself to check inventory, quest scroll, and map first thing in the morning, then state your exact target direction.
 
-What goes into the diary:
-— 3–5 sentences;
-— first person, past tense;
-— what you did, what you understood, what you felt;
-— no numbers;
-— no "should have";
-— no addressing, no questions, no philosophy.
-
-Tone — dry. Like everything you do.
+Rules:
+— Dry, pragmatic tone. No philosophy, no excuses, no rhetorical questions.
+— Keep it factual and actionable.
 
 Write."""
 

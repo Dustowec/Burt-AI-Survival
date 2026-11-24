@@ -29,6 +29,7 @@ from burt import (
     epitaphs as epitaphs_mod,
     events,
     faith,
+    hands,
     hunger,
     loop,
     llm_client,
@@ -129,6 +130,12 @@ def _ensure_runtime_fields(state: dict) -> None:
     hidden.setdefault("dot_effects", [])
     hidden.setdefault("pending_encounter", None)
     hidden.setdefault("encounter_revealed", False)
+    # §32 updated: last day the veteran spawned in a village (cooldown).
+    hidden.setdefault("veteran_last_spawn_day", 0)
+    # §35 updated: per-trader no-money block (resets next day).
+    hidden.setdefault("trade_buy_failures", {})
+    hidden.setdefault("trade_dialog_blocked_until", {})
+    hidden.setdefault("trade_fail_day", hidden.get("day", 1))
     # §26: tool text is delivered to the next prompt once.
     hidden.setdefault("pending_tool_output", None)
     # §35 economy: price modifiers and the paid room of tonight.
@@ -140,6 +147,8 @@ def _ensure_runtime_fields(state: dict) -> None:
 
     visible = state.setdefault("visible", {})
     visible.setdefault("skills_visible", [])
+    # §30 updated: hand slots ([HANDS]) over the full inventory.
+    hands.ensure_hands(visible)
     # new_bug §2: one date format even for old saves (legacy suffix -> "N day").
     day = hidden.get("day", state.get("meta", {}).get("day", 1))
     visible["date"] = state_mod.format_date(day)
@@ -231,6 +240,10 @@ def _determine_death_cause(state: dict, action: loop.Action) -> str:
     # 3. Osmotret penalty
     if action.key == "osmotret" and hidden.get("same_action_count", 0) >= 3:
         return "osmotret_penalty"
+
+    # 3b. The NPC lost patience with the repeated dialogue action.
+    if hidden.get("last_action") == "dialog_spam":
+        return "dialog_spam"
 
     # 4. Hunger (hp > 0 because hunger doesn't zero HP in state directly)
     if hp > 0 and not visible.get("eat", True) and hidden.get("step") in hunger.HUNGER_DEATH_AT:
@@ -475,6 +488,12 @@ async def run_turn(
             hidden["diary_skipped_today"] = False
         elif hidden.get("diary"):
             report += f"\n\nYour last diary entry:\n{hidden['diary']}"
+        # Hard morning order: read the diary, the quest scroll and the
+        # inventory before moving (step 0 of a new day).
+        report += (
+            "\n\nCHECK YOUR DIARY!!! "
+            "Check your diary, quest scroll and inventory before you move."
+        )
         hidden["injected_day"] = hidden.get("day", 1)
 
     # -- 1c. Memory injection from previous lives -----------------
@@ -724,7 +743,7 @@ async def run_turn(
 
     # -- 10. Forced sleep on step 20 ------------------------------
     step_now = hidden.get("step", 0)
-    chose_sleep = action.key in ("sleep", "write_diary_and_go_sleep")
+    chose_sleep = action.key == "write_diary_and_go_sleep"
     if sleep_mod.is_forced_sleep(step_now, chose_sleep):
         if hidden.get("current_mode") != "combat":
             logger.info("Forced sleep (step %d)", step_now)
