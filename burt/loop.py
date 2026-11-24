@@ -117,15 +117,16 @@ _AMBUSH_LOCATION = "thicket"  # §32: ambush at thicket
 _COMBAT_HEADER = "[COMBAT]"  # first line of sensory.format_combat_report
 
 # §26: free tools. A tool never advances the day counter.
+# The memory of past lives is NOT a tool: it is injected once at the
+# start of a new life (main.run_turn), so the model cannot loop on it.
 TOOL_KEYS: frozenset[str] = frozenset({
-    "scroll", "inventory", "status", "remember", "diary", "map",
+    "quest_log", "inventory", "status", "diary", "map",
 })
 
 _TOOL_LABELS: dict[str, str] = {
-    "scroll": "Quest scroll",
+    "quest_log": "Quest log",
     "inventory": "Inventory",
     "status": "Status",
-    "remember": "Remember",
     "diary": "Diary",
     "map": "Map",
 }
@@ -185,15 +186,15 @@ _ACTION_SYNONYMS = {
                   "my belongings", "what do i carry"],
     "status": ["status", "check my state", "how do i feel",
                "check myself"],
-    "remember": ["remember", "memory", "recall", "past life"],
+    "quest_log": ["quest log", "quests", "my quests", "active quests",
+                  "quest list", "tasks"],
     "diary": ["diary", "journal", "last entry", "my notes"],
 }
 
 
 def _append_tools(
     actions: list[Action],
-    keys: tuple[str, ...] = ("scroll", "inventory", "status",
-                             "remember", "diary"),
+    keys: tuple[str, ...] = ("quest_log", "inventory", "status", "diary"),
 ) -> list[Action]:
     """§26: free tools go at the end, so old menu indices stay stable."""
     for key in keys:
@@ -267,7 +268,7 @@ def build_menu(visible: dict, state: dict, *,
             actions.append(Action(key=f"go_{d}", label=f"Go {d}"))
 
     actions.append(Action(key="search", label="Search"))
-    actions.append(Action(key="scroll", label="Quest scroll", cost_free=True))
+    actions.append(Action(key="quest_log", label="Quest log", cost_free=True))
 
     step = hidden.get("step", 0)
     if _sleep_available(visible, hidden):
@@ -287,7 +288,7 @@ def build_menu(visible: dict, state: dict, *,
 
     actions.extend(talk_actions)
     return _append_tools(
-        actions, ("inventory", "status", "remember", "diary", "map"),
+        actions, ("inventory", "status", "diary", "map"),
     )
 
 
@@ -849,14 +850,6 @@ def format_status(state: dict) -> str:
     return sensory.format_status(state.get("visible", {}))
 
 
-def format_memory(state: dict) -> str:
-    """§26 remember tool: the last memory record of a past life."""
-    meta = state.get("meta", {})
-    memory = meta.get("memory") or meta.get("memory_summary")
-    body = memory if memory else "You remember nothing."
-    return "[MEMORY]\n" + body
-
-
 def format_diary(state: dict) -> str:
     """§26 diary tool: the last diary entry."""
     diary = state.get("hidden", {}).get("diary")
@@ -964,14 +957,12 @@ def _execute_tool(action: Action, state: dict) -> ActionResult | None:
     key = action.key
     if key not in TOOL_KEYS:
         return None
-    if key == "scroll":
-        return ActionResult(events=[format_scroll(state)])
+    if key == "quest_log":
+        return ActionResult(events=[format_quest_log(state)])
     if key == "inventory":
         return ActionResult(events=[format_inventory(state)])
     if key == "status":
         return ActionResult(events=[format_status(state)])
-    if key == "remember":
-        return ActionResult(events=[format_memory(state)])
     if key == "map":
         return ActionResult(events=[format_map(state)])
     return ActionResult(events=[format_diary(state)])
@@ -2303,8 +2294,8 @@ def _apply_quest_deadline(quest_id: str, state: dict, rng) -> None:
             break
 
 
-def format_scroll(state: dict) -> str:
-    """§18: quest scroll text. The giver stays hidden.
+def format_quest_log(state: dict) -> str:
+    """§18: quest log text. The giver stays hidden.
 
     Format per quest:
         Fangs of the Wolves — fangs 2/5, 4 days left
@@ -2315,9 +2306,9 @@ def format_scroll(state: dict) -> str:
               if d.get("status") == "active"]
 
     if not active:
-        return "[SCROLL]\nNo open quests.\n"
+        return "[QUESTS]\nNo open quests.\n"
 
-    lines = ["[SCROLL]"]
+    lines = ["[QUESTS]"]
     for entry in active:
         title = entry.get("title", entry.get("id", "?"))
         items = entry.get("deliver_items") or []

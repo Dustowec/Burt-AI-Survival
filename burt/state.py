@@ -193,6 +193,7 @@ def create_initial_state(
             "diary_written_today": False,
             "diary_skipped_today": False,
             "injected_day": 0,
+            "memory_injected": False,
             "pending_encounter": None,
             "encounter_revealed": False,
             "veteran_last_spawn_day": 0,

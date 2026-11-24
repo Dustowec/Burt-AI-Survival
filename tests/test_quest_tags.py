@@ -1,8 +1,8 @@
-"""Quest journal tags (Q1, Q2, ...) -- see quests._next_tag.
+﻿"""Quest journal tags (Q1, Q2, ...) -- see quests._next_tag.
 
 A tag is assigned once, when the quest is taken, and never reused, so
 it stays stable after the quest is completed or failed. The map and the
-quest scroll use it to point at the place where the quest was taken.
+quest log use it to point at the place where the quest was taken.
 """
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ class TestTagRoundTrip:
         assert quests._dict_to_quest(d).tag == ""
 
 
-class TestScrollShowsTag:
+class TestQuestLogShowsTag:
     def test_tag_prefix(self):
         st = make_state()
         st["hidden"]["quests_raw"] = [{
@@ -125,7 +125,7 @@ class TestScrollShowsTag:
             "type": "help", "progress": 1, "required": 3,
             "deliver_items": None, "deadline_day": 5, "tag": "Q1",
         }]
-        text = loop.format_scroll(st)
+        text = loop.format_quest_log(st)
         assert "Q1 Two Good Swords" in text
 
     def test_no_tag_no_prefix(self):
@@ -136,7 +136,7 @@ class TestScrollShowsTag:
             "type": "help", "progress": 1, "required": 3,
             "deliver_items": None, "deadline_day": 5,
         }]
-        assert "Two Good Swords" in loop.format_scroll(st)
+        assert "Two Good Swords" in loop.format_quest_log(st)
 
 
 class TestFreshLife:

@@ -127,6 +127,8 @@ def _ensure_runtime_fields(state: dict) -> None:
     hidden.setdefault("diary_written_today", False)
     hidden.setdefault("diary_skipped_today", False)
     hidden.setdefault("injected_day", 0)
+    # §28: the memory of past lives is injected exactly once per life.
+    hidden.setdefault("memory_injected", False)
     hidden.setdefault("dot_effects", [])
     hidden.setdefault("pending_encounter", None)
     hidden.setdefault("encounter_revealed", False)
@@ -358,17 +360,17 @@ async def _write_memory_summary(
 
 
 def _build_system_prompt(state: dict, menu: list | None = None) -> str:
-    """Build BURT_SYSTEM_PROMPT with optional memory_summary injection.
+    """Build BURT_SYSTEM_PROMPT with an optional gated cast hint.
+
+    Memory of past lives is NOT injected here: it belongs to the one-time
+    start-of-life inject in run_turn, otherwise the model sees it every
+    turn and starts repeating it.
 
     Spec 9/23: cast is a gated choice (staff + spell + teacher). It is
     mentioned only when the current menu really offers it, so the hint
     and the option always appear together.
     """
     base = prompts.BURT_SYSTEM_PROMPT
-    meta = state.get("meta", {})
-    summary = meta.get("memory_summary")
-    if summary:
-        base += f"\n\nAcross all your lives you understood:\n{summary}"
     if menu and any(a.key == "cast" for a in menu):
         base += "\n\nYour magic is ready: cast is in the menu."
     return base
@@ -488,18 +490,30 @@ async def run_turn(
             hidden["diary_skipped_today"] = False
         elif hidden.get("diary"):
             report += f"\n\nYour last diary entry:\n{hidden['diary']}"
-        # Hard morning order: read the diary, the quest scroll and the
+        # Hard morning order: read the diary, the quest log and the
         # inventory before moving (step 0 of a new day).
         report += (
             "\n\nCHECK YOUR DIARY!!! "
-            "Check your diary, quest scroll and inventory before you move."
+            "Check your diary, quest log and inventory before you move."
         )
         hidden["injected_day"] = hidden.get("day", 1)
 
-    # -- 1c. Memory injection from previous lives -----------------
-    meta = state.get("meta", {})
-    if meta.get("memory") and meta.get("life", 1) > 1:
-        report += f"\n\nYou remember your past life:\n{meta['memory']}"
+    # -- 1c. Memory injection: once, at the start of a new life ----
+    # day 1 / step 0 only. After the first inject the flag is set, so the
+    # memory never returns mid-life and the model cannot loop on it.
+    if (hidden.get("day", 1) == 1 and hidden.get("step", 0) == 0
+            and not hidden.get("memory_injected", False)):
+        meta = state.get("meta", {})
+        memory = meta.get("memory")
+        summary = meta.get("memory_summary")
+        parts: list[str] = []
+        if memory:
+            parts.append(f"You remember your past life:\n{memory}")
+        if summary:
+            parts.append(f"Across all your lives you understood:\n{summary}")
+        if parts:
+            report += "\n\n" + "\n\n".join(parts)
+            hidden["memory_injected"] = True
 
     # -- 2. Hunger / sleep injection ------------------------------
     if hunger.should_inject_hunger(step, visible.get("eat", False)):

@@ -1,7 +1,7 @@
-"""Full tools menu — spec §26.
+﻿"""Full tools menu — spec §26.
 
 Contract:
-- free tools: scroll / inventory / status / remember / diary;
+- free tools: quest_log / inventory / status / diary;
 - offered in exploring, dialog and combat menus;
 - NOT offered in a micro-location and NOT in the revealed-encounter menu;
 - a tool never advances the step, never changes mode, HP, wallet or combat;
@@ -18,7 +18,7 @@ from burt.loop import (
 from burt.npc import DialogueEngine, load_replicas
 
 
-TOOLS = ("scroll", "inventory", "status", "remember", "diary", "map")
+TOOLS = ("quest_log", "inventory", "status", "diary", "map")
 # The map is for travelling: not offered in a fight or a talk.
 TOOLS_NO_MAP = tuple(k for k in TOOLS if k != "map")
 ROLES = ("merchant", "guard", "peasant", "peasant_woman", "elder",
@@ -154,15 +154,20 @@ class TestMenuPresence:
 
     def test_labels(self):
         actions = menu_map(make_state())
-        assert actions["scroll"].label == "Quest scroll"
+        assert actions["quest_log"].label == "Quest log"
         assert actions["inventory"].label == "Inventory"
         assert actions["status"].label == "Status"
-        assert actions["remember"].label == "Remember"
         assert actions["diary"].label == "Diary"
         assert actions["map"].label == "Map"
 
     def test_tool_keys_constant(self):
         assert TOOL_KEYS == frozenset(TOOLS)
+
+    def test_remember_is_not_a_tool(self):
+        # §28: memory of past lives is a one-time inject, not a menu entry.
+        actions = menu_map(make_state())
+        assert "remember" not in actions
+        assert "remember" not in TOOL_KEYS
 
 
 
@@ -217,22 +222,6 @@ class TestToolOutput:
         ).events)
         assert "Effects: none" in text
 
-    def test_remember(self):
-        st = make_state()
-        text = "\n".join(execute_action(
-            Action("remember", "Remember"), st,
-        ).events)
-        assert "[MEMORY]" in text
-        assert "I saw the dark." in text
-
-    def test_remember_empty(self):
-        st = make_state()
-        st["meta"].pop("memory")
-        text = "\n".join(execute_action(
-            Action("remember", "Remember"), st,
-        ).events)
-        assert "You remember nothing." in text
-
     def test_diary(self):
         st = make_state()
         st["hidden"]["diary"] = "Day one was cold."
@@ -249,12 +238,12 @@ class TestToolOutput:
         ).events)
         assert "You have no diary entry." in text
 
-    def test_scroll_still_works(self):
+    def test_quest_log_still_works(self):
         st = make_state()
         text = "\n".join(execute_action(
-            Action("scroll", "Quest scroll"), st,
+            Action("quest_log", "Quest log"), st,
         ).events)
-        assert "[SCROLL]" in text
+        assert "[QUESTS]" in text
         assert "No open quests" in text
 
     def test_map_tool(self):

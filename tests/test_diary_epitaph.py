@@ -220,6 +220,53 @@ class TestRunTurnInjection:
             asyncio.run(main.run_turn(st, [], rng=lambda: 4, dry_run=False))
         user_msg = mock.call_args[0][1]
         assert "CHECK YOUR DIARY!!!" in user_msg
+        assert "quest log" in user_msg
+        assert "quest scroll" not in user_msg
+
+
+class TestMemoryInjectOnce:
+    """§28: memory of past lives is injected once, at day 1 / step 0."""
+
+    def _run(self, st):
+        mock = AsyncMock(return_value=("CHOICE: 0", []))
+        with patch.object(main.llm_client, "call_llm", new=mock), \
+                patch.object(main.loop, "execute_action",
+                             return_value=ActionResult(events=[], game_over=False)):
+            asyncio.run(main.run_turn(st, [], rng=lambda: 4, dry_run=False))
+        return mock.call_args[0][1]
+
+    def test_memory_injected_on_first_turn(self):
+        st = _state(day=1, step=0)
+        st["meta"]["memory"] = "I died hungry last life."
+        st["meta"]["life"] = 2
+        user_msg = self._run(st)
+        assert "You remember your past life" in user_msg
+        assert "I died hungry last life." in user_msg
+        assert st["hidden"]["memory_injected"] is True
+
+    def test_memory_not_repeated_on_second_turn(self):
+        st = _state(day=1, step=0)
+        st["meta"]["memory"] = "I died hungry last life."
+        st["meta"]["life"] = 2
+        self._run(st)
+        st["hidden"]["step"] = 1
+        user_msg = self._run(st)
+        assert "You remember your past life" not in user_msg
+
+    def test_memory_not_injected_after_day_one(self):
+        st = _state(day=2, step=0, injected_day=2)
+        st["meta"]["memory"] = "I died hungry last life."
+        st["meta"]["life"] = 2
+        user_msg = self._run(st)
+        assert "You remember your past life" not in user_msg
+
+    def test_memory_summary_injected_with_memory(self):
+        st = _state(day=1, step=0)
+        st["meta"]["life"] = 12
+        st["meta"]["memory_summary"] = "Patience is key."
+        user_msg = self._run(st)
+        assert "Across all your lives you understood" in user_msg
+        assert "Patience is key." in user_msg
 
 
 class TestRunTurnDayLog:

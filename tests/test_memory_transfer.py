@@ -4,7 +4,8 @@
 
 Память новой жизни берётся из последней эпитафии.
 При жизни >= 10 вызывается MEMORY_SUMMARY_PROMPT.
-memory_summary инжектится в BURT_SYSTEM_PROMPT.
+Память (memory + memory_summary) инжектится ОДИН раз — на day 1 / step 0
+новой жизни (hidden["memory_injected"]), а не в системный промпт.
 """
 
 import json
@@ -126,16 +127,13 @@ class TestWriteMemorySummary:
 
 
 class TestBuildSystemPrompt:
-    """Инжект memory_summary в BURT_SYSTEM_PROMPT."""
+    """§28: memory of past lives is NOT part of the system prompt.
 
-    def test_no_summary_without_memory_summary(self):
-        """Без memory_summary → базовый промпт."""
-        state = {"meta": {"life": 1}}
-        prompt = main._build_system_prompt(state)
-        assert "Across all your lives" not in prompt
+    It is injected once at the start of a new life (run_turn), so the
+    model does not see it on every turn.
+    """
 
-    def test_includes_summary_when_present(self):
-        """С memory_summary → добавляется в промпт."""
+    def test_no_memory_summary_in_system_prompt(self):
         state = {
             "meta": {
                 "life": 15,
@@ -143,19 +141,10 @@ class TestBuildSystemPrompt:
             }
         }
         prompt = main._build_system_prompt(state)
-        assert "Across all your lives you understood:" in prompt
-        assert "I have learned to be patient." in prompt
+        assert "Across all your lives" not in prompt
+        assert "I have learned to be patient." not in prompt
 
-    def test_summary_appended_after_base_prompt(self):
-        """memory_summary добавляется ПОСЛЕ базового промпта."""
-        state = {
-            "meta": {
-                "life": 12,
-                "memory_summary": "Patience is key.",
-            }
-        }
+    def test_base_prompt_is_kept(self):
+        state = {"meta": {"life": 12, "memory_summary": "Patience is key."}}
         prompt = main._build_system_prompt(state)
-        # Базовый промпт должен быть в начале
-        assert "You are Burt." in prompt
-        # Summary — после
-        assert prompt.index("You are Burt.") < prompt.index("Across all your lives")
+        assert prompt.startswith("You are Burt.")

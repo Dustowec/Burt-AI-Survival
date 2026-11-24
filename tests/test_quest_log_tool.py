@@ -1,6 +1,6 @@
-"""Quest scroll tool — spec §18, §26.
+﻿"""Quest log tool — spec §18, §26.
 
-The scroll is a free tool: it shows active quests as plain text and does
+The quest log is a free tool: it shows active quests as plain text and does
 not advance the day counter. The quest giver stays hidden (§18): Burt
 sees the text, the deadline and his own progress, never who asked, and
 never where that NPC is.
@@ -64,15 +64,15 @@ def make_state(day=1):
 # Menu (§26)
 # ---------------------------------------------------------------------
 
-class TestScrollInMenu:
-    def test_scroll_is_offered(self):
+class TestQuestLogInMenu:
+    def test_quest_log_is_offered(self):
         st = make_state()
         keys = [a.key for a in build_menu(st["visible"], st)]
-        assert "scroll" in keys
+        assert "quest_log" in keys
 
-    def test_scroll_is_free(self):
+    def test_quest_log_is_free(self):
         st = make_state()
-        action = next(a for a in build_menu(st["visible"], st) if a.key == "scroll")
+        action = next(a for a in build_menu(st["visible"], st) if a.key == "quest_log")
         assert action.cost_free is True
 
 
@@ -80,53 +80,53 @@ class TestScrollInMenu:
 # Output (§18)
 # ---------------------------------------------------------------------
 
-class TestScrollOutput:
-    def test_empty_scroll(self):
+class TestQuestLogOutput:
+    def test_empty_quest_log(self):
         st = make_state()
-        result = execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        result = execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         text = "\n".join(result.events)
         assert "No open quests" in text
 
-    def test_scroll_does_not_advance_step(self):
+    def test_quest_log_does_not_advance_step(self):
         st = make_state()
         before = st["hidden"]["step"]
-        execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         assert st["hidden"]["step"] == before
 
-    def test_scroll_lists_quest(self):
+    def test_quest_log_lists_quest(self):
         st = make_state()
         quests.quest_give("elder_1", "elder", st)
-        result = execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        result = execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         text = "\n".join(result.events)
         assert "Fangs of the Wolves" in text
 
-    def test_scroll_hides_giver(self):
+    def test_quest_log_hides_giver(self):
         st = make_state()
         quests.quest_give("elder_1", "elder", st)
-        result = execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        result = execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         text = "\n".join(result.events)
         assert "elder" not in text
         assert "blacksmith" not in text
 
-    def test_scroll_shows_deadline(self):
+    def test_quest_log_shows_deadline(self):
         st = make_state(day=3)
         quests.quest_give("elder_1", "elder", st)
         st["hidden"]["quests_raw"][0]["deadline_day"] = 8
-        result = execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        result = execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         text = "\n".join(result.events)
         assert "5 days left" in text
 
-    def test_scroll_shows_inventory_progress(self):
+    def test_quest_log_shows_inventory_progress(self):
         st = make_state()
         quests.quest_give("elder_1", "elder", st)
         st["visible"]["inventory"] = [{"name": "fangs", "count": 2}]
-        result = execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        result = execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         text = "\n".join(result.events)
         assert "2/5" in text
 
-    def test_scroll_skips_completed(self):
+    def test_quest_log_skips_completed(self):
         st = make_state()
         quests.quest_give("elder_1", "elder", st)
         st["hidden"]["quests_raw"][0]["status"] = "completed"
-        result = execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        result = execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         assert "No open quests" in "\n".join(result.events)

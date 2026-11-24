@@ -1,4 +1,4 @@
-"""Social layer end-to-end — spec §32, §36, §18, §16.
+﻿"""Social layer end-to-end — spec §32, §36, §18, §16.
 
 One flowing scenario: arrive in a village, meet an NPC, take a quest,
 kill the target, report back, gain reputation.
@@ -132,7 +132,7 @@ class TestFullLoop:
         assert "Quest complete" in "\n".join(result.events)
         assert reputation.get(st, "elder") == before + 1
 
-    def test_scroll_lists_issued_quest(self, engine):
+    def test_quest_log_lists_issued_quest(self, engine):
         st = make_state(npcs_here=["elder"])
         execute_action(Action("talk_to_elder", "Talk to elder"), st,
                        rng=_rng_seq(4), dialogue_engine=engine)
@@ -141,9 +141,9 @@ class TestFullLoop:
         execute_action(Action("dialog_exit", "Leave"), st,
                        rng=_rng_seq(4), dialogue_engine=engine)
 
-        result = execute_action(Action("scroll", "Scroll"), st, rng=_rng_seq(4))
+        result = execute_action(Action("quest_log", "Quest log"), st, rng=_rng_seq(4))
         text = "\n".join(result.events)
-        assert "[SCROLL]" in text
+        assert "[QUESTS]" in text
         assert "elder" not in text          # giver stays hidden (§18)
 
     def test_low_reputation_blocks_quests(self, engine):

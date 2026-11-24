@@ -187,9 +187,15 @@ class TestDiaryPrompt:
     def test_tomorrows_plan(self):
         assert "TOMORROW'S PLAN:" in prompts.DIARY_PROMPT
 
-    def test_reminds_to_check_inventory_and_scroll(self):
+    def test_reminds_to_check_inventory_and_quest_log(self):
         text = prompts.DIARY_PROMPT
-        assert "check inventory, quest scroll, and map" in text
+        assert "check inventory, quest log, and map" in text
+
+    def test_quest_log_is_not_the_diary(self):
+        # The model must never look for quests in the diary.
+        text = prompts.BURT_SYSTEM_PROMPT
+        assert "It is NOT the diary." in text
+        assert "Never look for quests" in text
 
     def test_dry_pragmatic_tone(self):
         assert "Dry, pragmatic tone" in prompts.DIARY_PROMPT
