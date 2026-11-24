@@ -1,6 +1,6 @@
 # Known Issues — BURT
 
-Spec: v0.7.0 · Code: `main @ v0.9.5-BETA + working tree` · Verified: 24.11.2026 · Tests: 3093 passed
+Spec: v0.7.0 · Code: `main @ v0.9.6-BETA + working tree` · Verified: 24.11.2026 · Tests: 3094 passed
 
 This file lists every divergence between the code and spec v0.7.0.
 Nothing here is a guess: each entry has a `file:line` evidence pointer.
@@ -360,21 +360,27 @@ completion, life block), `burt/loop.py` (`dialog_attack`,
 
 ## 🟡 MEDIUM — format and behaviour drift
 
-### 12. Full tools menu (§26) — DONE — CLOSED 21.11.2026
+### 12. Full tools menu (§26) — DONE — CLOSED 21.11.2026 · UPDATED 24.11.2026
 
-**Done:** `loop.TOOL_KEYS` = `scroll / inventory / status / remember /
-diary`, all `cost_free=True`.
+**Done:** `loop.TOOL_KEYS` = `quest_log / inventory / status / diary /
+map`, all `cost_free=True`.
 
-- offered in exploring (scroll already was, the other four appended at
-  the end), in dialog (normal topics + exit + tools) and in combat
-  (attack / block / flee / cast + tools);
+- offered in exploring (quest log is part of the main list, the rest are
+  appended at the end), in dialog (normal topics + exit + tools) and in
+  combat (attack / block / flee / cast + tools);
 - NOT offered in a micro-location (only back/forward, §26) and NOT in
   the revealed-encounter menu (only attack_* / go_away_to_*);
 - handlers run before dialog/combat routing: a tool never advances the
   step, never changes mode/HP/wallet/combat;
-- output: `[SCROLL]`, `[INVENTORY]` (`[HANDS]` + `[BACKPACK]`,
+- output: `[QUESTS]`, `[INVENTORY]` (`[HANDS]` + `[BACKPACK]`,
   `Name — Npcs` / `empty`), `[STATUS]` (HP/MP, Fed, `Sleep: N/20`,
-  `Effects: ...` without duration), `[MEMORY]`, `[DIARY]`;
+  `Effects: ...` without duration), `[DIARY]`, `[MAP]`;
+- **24.11.2026:** `scroll` renamed to `quest_log` ("Quest log",
+  `[QUESTS]`) and the `remember` tool removed — the memory of past lives
+  is a one-time start-of-life inject (`hidden["memory_injected"]`),
+  never a menu entry;
+- the prompt now states explicitly that the quest log is NOT the diary
+  and that quests are never looked up in the diary;
 - **24.11.2026:** the base sensory report shows only `[HANDS]` (max 2
   slots); the full backpack is visible only through the `inventory` tool
 - `osmotret` is not offered in combat; its legacy semantics are kept;
@@ -384,12 +390,13 @@ diary`, all `cost_free=True`.
 - `CHOICE` re-ask (new_bug §8) is unchanged: `loop.parse_choice_strict`
   + one retry with `loop.INVALID_CHOICE_KICK`, then
   `loop.fallback_action` (block → osmotret → dialog_exit → first item);
-- tests: `test_tools_menu.py` (33), `test_tools_prompt.py` (3),
-  `test_hands.py`.
+- tests: `test_tools_menu.py`, `test_tools_prompt.py`,
+  `test_quest_log_tool.py`, `test_hands.py`.
 
 **Evidence:** `burt/loop.py` (`TOOL_KEYS`, `_append_tools`, `_execute_tool`,
-`format_inventory/status/memory/diary`), `burt/sensory.py`
-(`format_inventory`, `format_status`), `main.py` (`pending_tool_output`).
+`format_inventory/status/diary/quest_log/map`), `burt/sensory.py`
+(`format_inventory`, `format_status`), `main.py` (`pending_tool_output`,
+one-time memory inject).
 
 ### 13. Sleep availability honours bedroll / tavern room — DONE (§5) — CLOSED 20.11.2026 · UPDATED 24.11.2026
 
@@ -437,7 +444,7 @@ The whole dialogue is one action now (new_bug §1):
 
 **5-day summarization:** dropped by design (HANDOFF-13), `DIARY_SUMMARY_PROMPT` is unused.
 
-**Memory:** between lives uses `epitaphs.json` + `meta["memory"]` instead of `memory.json`; `MEMORY_COMPRESS_AT` is unused.
+**Memory:** between lives uses `epitaphs.json` + `meta["memory"]` instead of `memory.json`; `MEMORY_COMPRESS_AT` is unused. Since v0.9.6-BETA the memory is injected exactly once, at `day 1 / step 0` of a new life (`hidden["memory_injected"]`), together with `meta["memory_summary"]` — it is no longer part of the system prompt.
 
 ---
 
@@ -533,7 +540,7 @@ generated reference.
 - **Skills (§8):** 10-skill registry, weapon mastery strikes, range/roll bonuses, thresholds 5/10 — done (#6).
 - **Weapon table (§20):** damage ranges, quality, non-humanoid ban, equipment-driven `BurtStats` — done (#7).
 - **Sleep gate (§5):** bedroll or paid room via `sleep.is_sleep_available` — done (#13); ordinary sleep removed 24.11.2026.
-- **v0.9.3–v0.9.5 mechanics:** tutorial `young_goblin`, map tool, journal tags, `[HANDS]`/`[BACKPACK]`, diary-only sleep, morning `CHECK YOUR DIARY!!!`, veteran village spawn with a 10-day cooldown, dialog anti-loop and per-trader no-money block — done and covered by tests.
+- **v0.9.3–v0.9.6 mechanics:** tutorial `young_goblin`, map tool, journal tags, `[HANDS]`/`[BACKPACK]`, diary-only sleep, morning `CHECK YOUR DIARY!!!`, veteran village spawn with a 10-day cooldown, dialog anti-loop, per-trader no-money block, `quest_log` instead of `scroll`, and the one-time memory inject (no `remember` tool) — done and covered by tests.
 - **`loop.py.back` leftover:** no longer present in `burt/`.
 - **Gemma 3n robotic behaviour:** model limitation, WON'T FIX.
 - **LLM ignores micro-location context:** cosmetic, open but harmless.
@@ -565,7 +572,7 @@ generated reference.
 | 🟡 Medium | 2 (#15 start rules inject, #16 state files of §2) |
 | 🟢 Low | 6 (#17 bandit, #18 enemy tags, #20 duplicate constants, #21 dead config flags, #22 role key mismatch, #24 documentation drift) |
 | ⚪ Intentional deviations | 9 |
-| ✅ Closed | 15 (#1–#14 + #19; plus v0.9.3–v0.9.5 mechanics listed above) |
+| ✅ Closed | 15 (#1–#14 + #19; plus v0.9.3–v0.9.6 mechanics listed above) |
 | **Total open** | **8** |
 
 ---
@@ -574,14 +581,15 @@ generated reference.
 
 ```text
 cd E:\Butr-Ai
-.\.venv\Scripts\pytest.exe -q            # 3093 passed (full: tests/ + root test_npc_integration.py)
+.\.venv\Scripts\pytest.exe -q            # 3094 passed (full: tests/ + root test_npc_integration.py)
 python main.py --new --dry-run           # inspect state + menu, no log writes
 python main.py --new --max-steps 5       # logs/plugin_*.jsonl + game_session.jsonl
 git --no-pager log --oneline -5
 ```
 
-No live LLM run was made for the v0.9.5-BETA changes (sleep/diary,
-`[HANDS]`, dialog anti-loop, veteran spawn, trade no-money block); the
-contract is covered by unit/integration tests only.
+No live LLM run was made for the v0.9.5/v0.9.6-BETA changes (sleep/diary,
+`[HANDS]`, dialog anti-loop, veteran spawn, trade no-money block,
+`quest_log`, one-time memory inject); the contract is covered by
+unit/integration tests only.
 
 

@@ -1,11 +1,11 @@
-# BURT — AI
+﻿# BURT — AI
 
 Плагин-движок для текстовой RPG. За персонажа Бурта играет LLM:
 пишет его мысли и выбирает действие из меню. Мир процедурный,
 посчитанный и безразличный. У Бурта нет цели — только обязанность
 действовать.
 
-**Версия:** v0.9.5-BETA · **Статус:** в разработке (TDD, 3093 тестов) · **ТЗ:** v0.7.0
+**Версия:** v0.9.6-BETA · **Статус:** в разработке (TDD, 3094 теста) · **ТЗ:** v0.7.0
 
 ---
 
@@ -29,7 +29,7 @@
 После любого сна контекст LLM сбрасывается. Дневник — единственный
 способ перенести память о дне в следующий день. На первом ходу нового
 дня (`step=0`) в промпт жёстко инжектится `CHECK YOUR DIARY!!!` —
-проверить дневник, свиток квестов и инвентарь.
+проверить дневник, журнал заданий и инвентарь.
 
 ---
 
@@ -43,7 +43,7 @@ E:\Butr-Ai
 ├── pytest.ini                # настройки pytest
 ├── conftest.py               # sys.path для тестов
 ├── main.py                   # точка входа (async orchestrator)
-├── HANDOFFs\                 # история разработки (HANDOFF-1..28)
+├── HANDOFFs\                 # история разработки (HANDOFF-1..29)
 ├── rules\                    # правила игры
 │   ├── Правила для игрока (LLM).md
 │   ├── Правила кубика.md
@@ -114,7 +114,8 @@ E:\Butr-Ai
   `test_economy`, `test_items`, `test_hands`.
 - **Цикл и интерфейс:** `test_loop`, `test_loop_combat`,
   `test_dialogue_single_action`, `test_dialog_repeat_guard`,
-  `test_tools_menu`, `test_sensory`, `test_prompts`, `test_diary_epitaph`.
+  `test_tools_menu`, `test_quest_log_tool`, `test_sensory`,
+  `test_prompts`, `test_diary_epitaph`.
 - **Торговля и NPC:** `test_trade_loop`, `test_trade_no_money_block`,
   `test_npc_spawn`, `test_npc_hostility_loop`, `test_veteran_spawn`.
 - **Сон и день:** `test_sleep`, `test_sleep_availability`,
@@ -126,7 +127,7 @@ E:\Butr-Ai
 
 ```powershell
 .\.venv\Scripts\pytest.exe -q
-# Ожидается: 3093 passed (tests/ + test_npc_integration.py).
+# Ожидается: 3094 passed (tests/ + test_npc_integration.py).
 ```
 
 Три слоя проекта
@@ -237,6 +238,35 @@ diary_skipped_today=True. Утром на первом ходе нового д�
 При смерти пишется эпитафия через SPIRIT_PROMPT (причина смерти, дни,
 последняя запись дневника), сохраняется в meta["memory"].
 
+Память прошлых жизней
+Память не является тулзой и не входит в системный промпт. Она инжектится
+ровно один раз — на `day 1 / step 0` новой жизни (`hidden["memory_injected"]`):
+
+```text
+You remember your past life:
+<meta.memory>
+
+Across all your lives you understood:
+<meta.memory_summary>
+```
+
+После инжекта флаг ставится, поэтому память не возвращается посреди жизни
+и модель не может зациклиться на ней.
+
+Бесплатные тулзы (§26)
+Меню `exploring`, `dialog` и `combat`:
+
+- `quest_log` — «Quest log», вывод `[QUESTS]`: активные квесты, сроки,
+  прогресс. Квестодатель скрыт. Это не дневник.
+- `inventory` — «Inventory», вывод `[INVENTORY]` = `[HANDS]` + `[BACKPACK]`.
+- `status` — «Status», вывод `[STATUS]`.
+- `diary` — «Diary», вывод `[DIARY]`: последняя запись дневника.
+- `map` — «Map», вывод `[MAP]`: ASCII-карта известного мира
+  (не в бою и не в диалоге).
+
+Тулза никогда не двигает шаг; её текст доставляется в следующий промпт
+через `hidden["pending_tool_output"]`.
+
 Работа с кодировками и языком (важно)
 Весь код, UI, промпты и тесты — на английском. Кириллица в исходниках — это баг.
 
@@ -274,6 +304,10 @@ diary_skipped_today=True. Утром на первом ходе нового д�
   сон), утренний `CHECK YOUR DIARY!!!`, ветеран только в деревне с
   кулдауном 10 дней, анти-цикл диалогов, слоты `[HANDS]` и скрытый
   `[BACKPACK]`, пер-торговая блокировка при трёх покупках без денег.
+- **v0.9.6-BETA:** убрана тулза `remember`; память прошлых жизней
+  инжектится ровно один раз на `day 1 / step 0`; тулза `scroll`
+  переименована в `quest_log` (`Quest log`, `[QUESTS]`); в промптах
+  явно разведены дневник и журнал заданий.
 
 Приоритеты:
 
